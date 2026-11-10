@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { computeLayout, type LayoutResult } from "@/lib/omr/layout-engine";
 import { DEFAULT_SETTINGS, PRESETS } from "@/lib/omr/presets";
-import { TEMPLATE_STORAGE_KEY } from "@/components/scanner/ScannerApp";
+import { writeStoredTemplate } from "@/lib/storage/template-store";
 import type { LayoutSettings } from "@/lib/omr/schema";
 import DebugDrawer, { IssueList } from "./DebugDrawer";
 import SettingsPanel from "./SettingsPanel";
@@ -54,7 +54,7 @@ export default function SheetDesigner() {
   // Hand the current valid template to the scanner page (same browser).
   useEffect(() => {
     if (!canExport || !result) return;
-    try { localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(result.template)); } catch { /* quota/private mode */ }
+    writeStoredTemplate(result.template);
   }, [canExport, result]);
 
   async function exportPdf() {

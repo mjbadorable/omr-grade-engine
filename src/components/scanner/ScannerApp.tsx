@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OMRTemplateSchema, type OMRTemplate } from "@/lib/omr/schema";
+import { readStoredTemplate, writeStoredTemplate } from "@/lib/storage/template-store";
 import type { ScanOutput } from "@/lib/vision/scan-sheet";
 import { ScannerClient } from "@/lib/vision/scanner-client";
 import type { CornerPoints, ScanTelemetry, VisionErrorPayload } from "@/lib/vision/types";
+import { bitmapToJpeg, putScan } from "@/lib/storage/scan-store";
 import ReviewCanvas from "./ReviewCanvas";
-
-export const TEMPLATE_STORAGE_KEY = "omr:template";
 
 interface Job {
   id: number;
@@ -21,17 +21,6 @@ interface Job {
 }
 
 const btn = "inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40";
-
-function readStoredTemplate(): OMRTemplate | null {
-  try {
-    const raw = localStorage.getItem(TEMPLATE_STORAGE_KEY);
-    if (!raw) return null;
-    const p = OMRTemplateSchema.safeParse(JSON.parse(raw));
-    return p.success ? p.data : null;
-  } catch {
-    return null;
-  }
-}
 
 export default function ScannerApp() {
   const client = useRef<ScannerClient | null>(null);
@@ -67,6 +56,11 @@ export default function ScannerApp() {
       patchJob(id, { status: "scanning" });
       const { result, preview } = await client.current!.scan(source, { onTelemetry: (t) => patchJob(id, { stage: t.stage }) });
       patchJob(id, { status: "done", result, preview });
+      // hand the result to the gradebook (same browser, IndexedDB)
+      putScan({
+        sheetId: crypto.randomUUID(), layoutHash: result.layoutHash, templateId: result.templateId, name, createdAt: Date.now(),
+        result, preview: preview ? await bitmapToJpeg(preview) : null,
+      }).catch(() => { /* storage unavailable: results stay on screen */ });
     } catch (e) {
       patchJob(id, { status: "error", error: e as VisionErrorPayload });
     }
@@ -84,7 +78,7 @@ export default function ScannerApp() {
       if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "invalid template");
       setTemplate(parsed.data);
       setTemplateError(null);
-      localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(parsed.data));
+      writeStoredTemplate(parsed.data);
     } catch (e) {
       setTemplateError(e instanceof Error ? e.message : String(e));
     }
@@ -98,6 +92,7 @@ export default function ScannerApp() {
       <header className="flex flex-wrap items-center gap-3 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
         <h1 className="text-[15px] font-semibold tracking-tight">OMR Scanner</h1>
         <Link href="/" className="text-sm text-indigo-600 hover:underline dark:text-indigo-400">← Designer</Link>
+        <Link href="/grade" className="text-sm text-indigo-600 hover:underline dark:text-indigo-400">Gradebook →</Link>
         <span className={`ml-auto rounded-full px-2.5 py-0.5 text-xs font-medium ${engine.state === "ready" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : engine.state === "error" ? "bg-red-100 text-red-700" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`}>
           {engine.state === "ready" ? `Vision engine ready · ${engine.ms} ms` : engine.state === "error" ? `Engine failed: ${engine.message}` : "Loading vision engine (OpenCV, cached after first use)…"}
         </span>

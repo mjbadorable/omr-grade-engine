@@ -13,7 +13,7 @@ settings ──► layout-engine.ts ──► OMRTemplate (mm, fiducial-relative
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm test           # 64 tests: layout/PDF/hash + vision (real OpenCV.js in Node)
+npm test           # 91 tests: layout/PDF/hash, vision (real OpenCV.js in Node), grading & psychometrics
 npm run build
 ```
 
@@ -70,3 +70,23 @@ OpenCV.js (`@techstark/opencv-js` 4.10.0) is copied to `public/vendor/` by `npm 
 
 **Classification** (inner disc = 70 % of the bubble radius, darkness normalised against local paper):
 `FILLED` coverage ≥ 0.75 · `PARTIAL` coverage ≥ 0.15 · `ERASURE` low coverage but density ≥ 0.10 above the group baseline · `EMPTY` otherwise.
+
+## Sprint 3: Grading engine & psychometrics (`/grade`)
+
+| Path | Purpose |
+|---|---|
+| `src/lib/grading/types.ts` | Contracts: `AnswerKey` (versioned, `Map<number, QuestionRule>`), `QuestionRule` (choice / numeric / matrix; `ALL_MATCH`, `ANY_MATCH`, `PARTIAL_CREDIT`; points, negative, bonus, dropped, subject/section tags), `SetMapping`, `ScoredSheet`, `PsychometricReport` |
+| `src/lib/grading/answer-key.ts` | Blank key from a template, immutable updates (every change bumps `version`), key from a scanned master sheet, set-mapping text format, validated JSON codec |
+| `src/lib/grading/scorer.ts` | `scoreSheet`, `rescoreBatch` (key compiled once into per-set bitmask tables), `mergePages` for multi-page sheets |
+| `src/lib/grading/item-analysis.ts` | p, D (27 % groups), point-biserial (total and rest score), distractor analysis, miskey detection, KR-20, SEM |
+| `src/lib/grading/export.ts` | Gradebook / item-analysis rows → CSV (formula-injection safe) and SheetJS workbook |
+| `src/lib/grading/simulate.ts` | Seeded 2PL IRT class simulator (benchmarks, tests, "Demo class" button) |
+| `src/lib/storage/*` | IndexedDB scan store (`/scan` → `/grade`) and localStorage template/key store |
+| `src/components/grading/*` | Key editor, sortable gradebook, inspection modal, item-analysis view with distractor charts |
+| `tests/grading/` | Scoring rules, set shuffles, hand-computed psychometrics, IRT recovery, exports, 5,000-sheet benchmark |
+
+**Exam sets.** The key is written in the default set's order. Other sets map printed → master with lines like `1:7:CABD` (printed Q1 is master Q7; printed A,B,C,D are master C,A,B,D). Sheets whose set is unreadable are held as `FLAGGED_CONFLICT` when sets differ.
+
+**Quality badges.** Strong: D ≥ 0.30 · Average: 0.20 ≤ D < 0.30 · Poor: D < 0.20, negative discrimination, or a distractor that attracts the upper group more than the key does (possible miskey).
+
+SheetJS is installed from `cdn.sheetjs.com` (0.20.3); the npm registry copy is outdated.
