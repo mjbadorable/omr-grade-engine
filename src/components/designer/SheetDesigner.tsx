@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { computeLayout, type LayoutResult } from "@/lib/omr/layout-engine";
 import { DEFAULT_SETTINGS, PRESETS } from "@/lib/omr/presets";
+import { TEMPLATE_STORAGE_KEY } from "@/components/scanner/ScannerApp";
 import type { LayoutSettings } from "@/lib/omr/schema";
 import DebugDrawer, { IssueList } from "./DebugDrawer";
 import SettingsPanel from "./SettingsPanel";
@@ -49,6 +51,12 @@ export default function SheetDesigner() {
   const page = Math.min(pageIndex, Math.max(0, pages - 1));
   const canExport = !!result && "result" in outcome && errors.length === 0 && !stale;
 
+  // Hand the current valid template to the scanner page (same browser).
+  useEffect(() => {
+    if (!canExport || !result) return;
+    try { localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(result.template)); } catch { /* quota/private mode */ }
+  }, [canExport, result]);
+
   async function exportPdf() {
     if (!result) return;
     setBusy(true);
@@ -86,6 +94,7 @@ export default function SheetDesigner() {
           </div>
         )}
         <div className="ml-auto flex items-center gap-2">
+          <Link href="/scan" className={`${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}>Scan sheets →</Link>
           <button type="button" className={`${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`} onClick={() => setDrawer(drawer ? null : "json")}>
             {"{ }"} Inspect JSON
           </button>

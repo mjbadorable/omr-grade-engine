@@ -9,7 +9,7 @@ import type { OMRPage, OMRTemplate } from "./schema";
 export const INK = {
   solid: "#000000",
   bubbleStroke: "#262626",
-  bubbleLabel: "#8a8a8a",   // light so printed letters add little darkness inside the bubble
+  bubbleLabel: "#a3a3a3",   // light: printed letters read ≈ 0.36 darkness, well under the 0.5 ink level
   text: "#111111",
   box: "#6b6b6b",
 } as const;

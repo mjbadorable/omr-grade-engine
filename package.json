@@ -8,9 +8,14 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "vendor": "node scripts/copy-opencv.mjs",
+    "predev": "npm run vendor",
+    "prebuild": "npm run vendor"
   },
   "dependencies": {
+    "@techstark/opencv-js": "^4.10.0-release.1",
+    "jsqr": "^1.4.0",
     "next": "15.5.29",
     "pdf-lib": "^1.17.1",
     "qrcode-generator": "^1.4.4",
