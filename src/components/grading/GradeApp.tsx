@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import AppNav from "@/components/AppNav";
+import CloudBar from "@/components/cloud/CloudBar";
+import { useCloudExam } from "@/components/cloud/CloudExam";
+import { answerKeyToBody } from "@/lib/cloud/convert";
 import { renderScorecards } from "@/lib/export/scorecard-client";
 import type { ScorecardInput } from "@/lib/export/scorecard-generator";
 import { computeClassStanding } from "@/lib/export/standing";
@@ -53,9 +56,10 @@ export default function GradeApp() {
   const [key, setKey] = useState<AnswerKey | null>(null);
   const [stored, setStored] = useState<StoredScan[]>([]);
   const [demo, setDemo] = useState<SheetSource[]>([]);
-  const [patches, setPatches] = useState<ManualOverridePatch[]>([]);
-  const [resolutions, setResolutions] = useState<ConflictResolution[]>([]);
-  const [roster, setRoster] = useState<Roster | null>(null);
+  const [localPatches, setPatches] = useState<ManualOverridePatch[]>([]);
+  const [localResolutions, setResolutions] = useState<ConflictResolution[]>([]);
+  const [localRoster, setRoster] = useState<Roster | null>(null);
+  const [cloudDetail, setCloudDetail] = useState<Map<string, StoredScan>>(new Map());
   const [tab, setTab] = useState<Tab>("key");
   const [openId, setOpenId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -63,6 +67,13 @@ export default function GradeApp() {
   const [pending, setPending] = useState(0);
   const [who, setWho] = useState({ teacherId: "teacher", endpoint: "" });
   const [institute, setInstitute] = useState("");
+
+  // ---- cloud (Convex) mode: the selected exam's live data replaces the local stores
+  const cloud = useCloudExam();
+  const cloudExamId = cloud?.examId ?? null;
+  const patches = cloud ? cloud.patches : localPatches;
+  const resolutions = cloud ? cloud.resolutions : localResolutions;
+  const roster = cloud ? cloud.roster ?? null : localRoster;
 
   const refreshPending = useCallback(() => { localOutbox().pending().then((p) => setPending(p.length)).catch(() => {}); }, []);
 
@@ -78,26 +89,73 @@ export default function GradeApp() {
   useEffect(() => {
     setWho({ teacherId: identity().teacherId, endpoint: syncEndpoint() });
     try { setInstitute(localStorage.getItem(INSTITUTE_KEY) ?? ""); } catch { /* ignore */ }
+    refreshPending();
+  }, [refreshPending]);
+  useEffect(() => {
+    if (cloudExamId) return;               // cloud exam selected: its template/key come from Convex
     const t = readStoredTemplate();
     if (t) load(t);
-    refreshPending();
-  }, [load, refreshPending]);
+  }, [load, cloudExamId]);
+  const cloudTemplate = cloud?.template ?? null;
+  useEffect(() => { if (cloudTemplate) { setTemplate(cloudTemplate); setDemo([]); } }, [cloudTemplate]);
+
+  // ---- cloud key: adopt server versions; push local edits as new versions (optimistic concurrency)
+  const dirty = useRef(false);
+  const cloudBase = useRef<number | null>(null);
+  const [cloudSaving, setCloudSaving] = useState(false);
+  const cloudKey = cloud?.key;
+  useEffect(() => {
+    if (!cloudKey) { cloudBase.current = null; return; }
+    if (dirty.current && cloudBase.current !== null && cloudKey.version === cloudBase.current) return; // own edits pending
+    if (dirty.current && cloudBase.current !== null && cloudKey.version !== cloudBase.current) {
+      setNotice(`Another teacher saved answer key v${cloudKey.version}; it replaced your unsaved edits.`);
+    }
+    dirty.current = false;
+    cloudBase.current = cloudKey.version;
+    setKey(cloudKey);
+  }, [cloudKey]);
+  const editKey = useCallback((k: AnswerKey | ((cur: AnswerKey | null) => AnswerKey | null)) => {
+    dirty.current = true;
+    setKey(k as AnswerKey);
+  }, []);
+  useEffect(() => {
+    if (!cloud || !key || !dirty.current || cloudBase.current === null) return;
+    const h = setTimeout(async () => {
+      if (!dirty.current || !cloud.key) return;
+      if (JSON.stringify(answerKeyToBody(key)) === JSON.stringify(answerKeyToBody(cloud.key))) { dirty.current = false; return; }
+      setCloudSaving(true);
+      try {
+        const r = await cloud.saveKey(key, cloudBase.current!);
+        if (r.ok) { cloudBase.current = r.version; }
+        else setNotice(`Answer key v${r.currentVersion} was saved by another teacher; your edits were not applied. Re-apply them on the new version.`);
+        dirty.current = false;
+      } catch (e) {
+        setNotice(`Could not save the answer key: ${e instanceof Error ? e.message : e}`);
+      } finally {
+        setCloudSaving(false);
+      }
+    }, 700);
+    return () => clearTimeout(h);
+  }, [key, cloud]);
 
   // ---- persist + queue key versions (debounced so typing does not flood the outbox)
   const lastQueued = useRef(0);
   useEffect(() => {
-    if (!key || !template) return;
+    if (!key || !template || cloudExamId) return;
     writeStoredKey(template.layoutHash, key);
     if (key.version === lastQueued.current) return;
     const h = setTimeout(() => { lastQueued.current = key.version; recordKey({ ...key, layoutHash: template.layoutHash }).then(refreshPending).catch(() => {}); }, 800);
     return () => clearTimeout(h);
-  }, [key, template, refreshPending]);
+  }, [key, template, refreshPending, cloudExamId]);
 
   // ---- sources → effective fields → conflicts → scoring (all memoised, key deferred)
-  const sources = useMemo<SheetSource[]>(() => [
-    ...stored.map((s) => ({ sheetId: s.sheetId, layoutHash: s.layoutHash, deviceId: s.deviceId ?? "local", teacherId: s.teacherId ?? "teacher", createdAt: s.createdAt, raw: s.result.fields, stored: s })),
-    ...demo,
-  ], [stored, demo]);
+  const cloudScans = cloud?.scans;
+  const sources = useMemo<SheetSource[]>(() => cloud
+    ? (cloudScans ?? []).map((s) => ({ sheetId: s._id, layoutHash: cloud.template.layoutHash, deviceId: s.deviceId, teacherId: s.scannedByTeacherId, createdAt: s.scanTimestamp, raw: s.fields, stored: null }))
+    : [
+      ...stored.map((s) => ({ sheetId: s.sheetId, layoutHash: s.layoutHash, deviceId: s.deviceId ?? "local", teacherId: s.teacherId ?? "teacher", createdAt: s.createdAt, raw: s.result.fields, stored: s })),
+      ...demo,
+    ], [cloud, cloudScans, stored, demo]);
   const patchesBySheet = useMemo(() => {
     const m = new Map<string, ManualOverridePatch[]>();
     for (const p of patches) (m.get(p.sheetId) ?? m.set(p.sheetId, []).get(p.sheetId)!).push(p);
@@ -126,11 +184,19 @@ export default function GradeApp() {
   const keySources = useMemo(() => stored.slice(-20).reverse().map((s) => ({
     id: s.sheetId,
     label: `${s.name} (roll ${s.result.fields.rollNumber ?? "?"})`,
-    apply: () => setKey((k) => (k ? keyFromScannedAnswers(k, s.result.fields) : k)),
-  })), [stored]);
+    apply: () => editKey((k) => (k ? keyFromScannedAnswers(k, s.result.fields) : k)),
+  })), [stored, editKey]);
+
+  useEffect(() => {
+    if (!cloud || !openId || cloudDetail.has(openId)) return;
+    let alive = true;
+    cloud.loadScanDetail(openId).then((d) => { if (alive && d) setCloudDetail((m) => new Map(m).set(openId, d)); }).catch(() => {});
+    return () => { alive = false; };
+  }, [cloud, openId, cloudDetail]);
 
   // ---- mutations
   async function addPatches(ps: ManualOverridePatch[]) {
+    if (cloud) { await cloud.addPatches(ps).catch((e) => setNotice(`Correction not saved: ${e?.data?.message ?? e.message}`)); return; }
     setPatches((cur) => [...cur, ...ps]);
     for (const p of ps) {
       await putOverride(p).catch(() => {});
@@ -140,6 +206,7 @@ export default function GradeApp() {
   }
 
   async function importRosterRecord(r: Roster) {
+    if (cloud) { await cloud.setRoster(r).catch((e) => setNotice(`Roster not saved: ${e?.data?.message ?? e.message}`)); return; }
     if (!template) return;
     setRoster(r);
     await setMeta(rosterMetaKey(template.layoutHash), r).catch(() => {});
@@ -148,6 +215,7 @@ export default function GradeApp() {
   }
 
   async function keep(group: ConflictGroup, keepSheetId: string) {
+    if (cloud) { await cloud.resolve(group.rollKey, keepSheetId).catch((e) => setNotice(`Not saved: ${e?.data?.message ?? e.message}`)); return; }
     const r: ConflictResolution = {
       id: crypto.randomUUID(), layoutHash: group.layoutHash, rollKey: group.rollKey, keepSheetId,
       supersededSheetIds: group.sheetIds.filter((x) => x !== keepSheetId), teacherId: identity().teacherId, timestamp: Date.now(),
@@ -198,7 +266,7 @@ export default function GradeApp() {
     if (!file || !key) return;
     try {
       const k = parseKey(JSON.parse(await file.text()));
-      setKey({ ...k, version: Math.max(k.version, key.version + 1) });
+      editKey({ ...k, version: Math.max(k.version, key.version + 1) });
       setNotice(`Imported answer key "${k.examId}".`);
     } catch (e) {
       setNotice(`Invalid key file: ${e instanceof Error ? e.message.slice(0, 160) : e}`);
@@ -249,9 +317,9 @@ export default function GradeApp() {
   if (!template || !key) {
     return (
       <div className="min-h-dvh">
-        <header className="flex items-center gap-4 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950"><h1 className="text-[15px] font-semibold">Gradebook</h1><AppNav /></header>
+        <header className="flex items-center gap-4 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950"><h1 className="text-[15px] font-semibold">Gradebook</h1><AppNav /><div className="ml-auto"><CloudBar /></div></header>
         <div className="mx-auto max-w-xl p-8 text-center">
-          <p className="mb-4 text-sm text-zinc-500">Design a sheet first (it is remembered in this browser), load its <code>template-coordinates.json</code>, or download the Sample Exam Kit from the designer.</p>
+          <p className="mb-4 text-sm text-zinc-500">{cloud === null && cloudExamId === null ? "Design a sheet first (it is remembered in this browser), load its template-coordinates.json, open a cloud exam, or download the Sample Exam Kit from the designer." : "Loading the cloud exam…"}</p>
           <div className="flex justify-center gap-2">
             <Link href="/designer" className={outline}>Open designer</Link>
             <label className={`${outline} cursor-pointer`}>Load template JSON<input type="file" accept=".json,application/json" className="sr-only" onChange={(e) => onTemplateFile(e.target.files?.[0])} /></label>
@@ -275,13 +343,14 @@ export default function GradeApp() {
         <span className="truncate text-sm text-zinc-500">{template.title} · <span className="font-mono text-xs">#{template.layoutHash}</span></span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <span data-testid="key-status" className="rounded-full bg-zinc-100 px-2.5 py-0.5 font-mono text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title="Every edit creates a new key version and rescores all sheets">
-            key v{key.version} · {keyed}/{key.questions.size} keyed · {graded?.sheets.length ?? 0} sheets in {graded ? graded.ms.toFixed(0) : "–"} ms
+            {cloud ? `cloud key v${cloudBase.current ?? key.version}${cloudSaving ? " · saving…" : ""}` : `key v${key.version}`} · {keyed}/{key.questions.size} keyed · {graded?.sheets.length ?? 0} sheets in {graded ? graded.ms.toFixed(0) : "–"} ms
           </span>
-          <SyncPanel pending={pending} teacherId={who.teacherId} endpoint={who.endpoint}
+          <CloudBar localTemplate={cloud ? null : template} />
+          {!cloud && <SyncPanel pending={pending} teacherId={who.teacherId} endpoint={who.endpoint}
             onTeacher={(v) => { setTeacherId(v); setWho((w) => ({ ...w, teacherId: identity().teacherId })); }}
             onEndpoint={(v) => { setSyncEndpoint(v); setWho((w) => ({ ...w, endpoint: v.trim() })); }}
-            onSync={async () => { const e = makeEngine(); if (!e) return null; const r = await e.syncOnce(); refreshPending(); if (r.pulled) load(template); return r; }} />
-          <button type="button" className={outline} onClick={generateDemo}>Demo class</button>
+            onSync={async () => { const e = makeEngine(); if (!e) return null; const r = await e.syncOnce(); refreshPending(); if (r.pulled) load(template); return r; }} />}
+          <button type="button" className={outline} onClick={generateDemo} disabled={!!cloud} title={cloud ? "Demo data is local-only; deselect the cloud exam to use it" : undefined}>Demo class</button>
           <button type="button" className={outline} disabled={!graded?.sheets.length || !!busy} onClick={() => scorecards()}>{busy ?? "Scorecards PDF"}</button>
           <button type="button" className={outline} disabled={!graded?.sheets.length}
             onClick={() => graded && download(`${key.examId}-v${key.version}-results.csv`, "﻿" + toCsv(gradebookRows(graded.sheets, key)), "text/csv;charset=utf-8")}>CSV</button>
@@ -308,8 +377,8 @@ export default function GradeApp() {
           </label>
           <button type="button" className={outline} onClick={() => download(`${key.examId}-key-v${key.version}.json`, JSON.stringify(serializeKey(key), null, 2), "application/json")}>Export key</button>
           <label className={`${outline} cursor-pointer`}>Import key<input type="file" accept=".json,application/json" className="sr-only" onChange={(e) => { onKeyFile(e.target.files?.[0]); e.target.value = ""; }} /></label>
-          <button type="button" className={outline} onClick={() => { if (confirm("Reset the answer key to blank?")) setKey(updateKey(keyFromTemplate(template), { })); }}>Reset key</button>
-          {(stored.length > 0 || demo.length > 0) && (
+          <button type="button" className={outline} onClick={() => { if (confirm("Reset the answer key to blank?")) editKey(updateKey(keyFromTemplate(template), { })); }}>Reset key</button>
+          {!cloud && (stored.length > 0 || demo.length > 0) && (
             <button type="button" className={outline} onClick={async () => {
               if (!confirm(`Remove ${stored.length} scanned and ${demo.length} demo sheets for this template? Override and sync logs are kept.`)) return;
               await clearScans(template.layoutHash).catch(() => {});
@@ -322,7 +391,7 @@ export default function GradeApp() {
       {notice && <div className="border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-sm text-indigo-900 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-indigo-200">{notice} <button type="button" className="ml-2 underline" onClick={() => setNotice(null)}>dismiss</button></div>}
 
       <main className="flex-1 space-y-4 p-4">
-        {tab === "key" && <KeyEditor answerKey={key} onChange={setKey} stats={stats} keySources={keySources} />}
+        {tab === "key" && <KeyEditor answerKey={key} onChange={editKey} stats={stats} keySources={keySources} />}
         {tab === "gradebook" && (graded?.sheets.length ? (
           <>
             <ConflictPanel groups={groups} sheets={sourceById as Map<string, SyncedSheet>} onKeep={keep} onOpen={setOpenId} />
@@ -330,11 +399,16 @@ export default function GradeApp() {
           </>
         ) : <Empty />)}
         {tab === "roster" && <RosterPanel roster={roster} recon={recon} onImport={importRosterRecord} onOpen={setOpenId} download={(n, d, t) => download(n, d, t)} />}
+        {tab === "analysis" && cloud?.analytics && (
+          <p data-testid="server-analytics" className="text-xs text-zinc-500">
+            Server snapshot ({cloud.analytics.status}{cloud.analytics.keyVersion ? `, key v${cloud.analytics.keyVersion}` : ""}): {cloud.analytics.gradedCount} sheets · KR-20 {cloud.analytics.kr20?.toFixed(2) ?? "–"} · {cloud.analytics.openConflicts} open conflicts
+          </p>
+        )}
         {tab === "analysis" && (graded && graded.sheets.length >= 2 ? <ItemAnalysisView report={graded.report} /> : <Empty />)}
       </main>
 
       {openSheet && openSource && (
-        <ReviewModal sheet={openSheet} scan={openSource.stored} rawFields={openSource.raw} patches={patchesBySheet.get(openSheet.sheetId) ?? []}
+        <ReviewModal sheet={openSheet} scan={openSource.stored ?? cloudDetail.get(openSheet.sheetId) ?? null} rawFields={openSource.raw} patches={patchesBySheet.get(openSheet.sheetId) ?? []}
           answerKey={key} student={recon.studentBySheet.get(openSheet.sheetId) ?? null} teacherId={who.teacherId}
           onPatches={addPatches} onScorecard={() => scorecards(openSheet.sheetId)} onClose={() => setOpenId(null)} />
       )}

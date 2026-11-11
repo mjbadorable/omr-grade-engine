@@ -42,3 +42,8 @@ next-env.d.ts
 
 # copied from node_modules by scripts/copy-opencv.mjs
 /public/vendor/
+
+# local dev auth keys (scripts/dev-auth.mjs)
+/.dev-auth/
+# convex local deployment state
+.env.local

@@ -1,6 +1,8 @@
 "use client";
 
 import AppNav from "@/components/AppNav";
+import CloudBar from "@/components/cloud/CloudBar";
+import { useCloudSession } from "@/components/cloud/CloudSession";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OMRTemplateSchema, type OMRTemplate } from "@/lib/omr/schema";
 import { readStoredTemplate, writeStoredTemplate } from "@/lib/storage/template-store";
@@ -19,6 +21,8 @@ interface Job {
   result?: ScanOutput;
   preview?: ImageBitmap | null;
   error?: VisionErrorPayload;
+  /** upload state when a cloud exam is selected */
+  cloud?: "uploading" | "stored" | "already_stored" | "duplicate_identical" | "conflict" | "rejected" | "failed";
 }
 
 const btn = "inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40";
@@ -32,6 +36,10 @@ export default function ScannerApp() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const jobSeq = useRef(0);
+  const session = useCloudSession();
+  const cloudTemplate = session?.examTemplate ?? null;
+  // a selected cloud exam dictates the sheet layout being scanned
+  useEffect(() => { if (cloudTemplate) setTemplate(cloudTemplate); }, [cloudTemplate]);
 
   // ---- worker lifecycle
   useEffect(() => {
@@ -63,11 +71,17 @@ export default function ScannerApp() {
         sheetId: crypto.randomUUID(), layoutHash: result.layoutHash, templateId: result.templateId, name, createdAt: Date.now(),
         result, preview: preview ? await bitmapToJpeg(preview) : null, deviceId, teacherId,
       };
-      putScan(stored).then(() => recordScan(stored)).catch(() => { /* storage unavailable: results stay on screen */ });
+      await putScan(stored).then(() => recordScan(stored)).catch(() => { /* storage unavailable: results stay on screen */ });
+      if (session?.selection.examId && session.selection.layoutHash === result.layoutHash) {
+        patchJob(id, { cloud: "uploading" });
+        session.uploadScan(stored)
+          .then((r) => patchJob(id, { cloud: r ? (r.status as Job["cloud"]) : "failed" }))
+          .catch(() => patchJob(id, { cloud: "failed" }));
+      }
     } catch (e) {
       patchJob(id, { status: "error", error: e as VisionErrorPayload });
     }
-  }, [patchJob]);
+  }, [patchJob, session]);
 
   async function onFiles(files: FileList | null) {
     if (!files) return;
@@ -95,7 +109,8 @@ export default function ScannerApp() {
       <header className="flex flex-wrap items-center gap-3 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
         <h1 className="text-[15px] font-semibold tracking-tight">OMR Scanner</h1>
         <AppNav />
-        <span className={`ml-auto rounded-full px-2.5 py-0.5 text-xs font-medium ${engine.state === "ready" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : engine.state === "error" ? "bg-red-100 text-red-700" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`}>
+        <div className="ml-auto"><CloudBar localTemplate={cloudTemplate ? null : template} /></div>
+        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${engine.state === "ready" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : engine.state === "error" ? "bg-red-100 text-red-700" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`}>
           {engine.state === "ready" ? `Vision engine ready · ${engine.ms} ms` : engine.state === "error" ? `Engine failed: ${engine.message}` : "Loading vision engine (OpenCV, cached after first use)…"}
         </span>
       </header>
@@ -165,7 +180,15 @@ export default function ScannerApp() {
   );
 }
 
+const CLOUD_LABEL: Record<NonNullable<Job["cloud"]>, string> = {
+  uploading: "cloud …", stored: "cloud ✓", already_stored: "cloud ✓", duplicate_identical: "cloud ✓ (rescan)", conflict: "cloud: conflict", rejected: "cloud: wrong sheet", failed: "cloud: queued",
+};
+
 function JobBadge({ job }: { job: Job }) {
+  return <span className="flex items-center gap-1">{job.cloud && <span data-testid="cloud-status" className={`text-[11px] ${job.cloud === "conflict" || job.cloud === "rejected" ? "text-amber-700" : job.cloud === "failed" ? "text-zinc-500" : "text-emerald-700"}`}>{CLOUD_LABEL[job.cloud]}</span>}<LocalBadge job={job} /></span>;
+}
+
+function LocalBadge({ job }: { job: Job }) {
   if (job.status === "error") return <span className="rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-medium text-red-700 dark:bg-red-500/15 dark:text-red-300">{job.error?.code}</span>;
   if (job.status !== "done") return <span className="text-[11px] text-zinc-500">{job.stage ?? job.status}…</span>;
   const n = job.result!.fields.conflicts.length;

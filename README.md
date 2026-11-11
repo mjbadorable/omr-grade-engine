@@ -13,7 +13,7 @@ settings ──► layout-engine.ts ──► OMRTemplate (mm, fiducial-relative
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm test           # 137 tests: layout, vision (real OpenCV.js in Node), grading, roster, overrides, sync, scorecards, sample kit
+npm test           # 145 tests: layout, vision (real OpenCV.js in Node), grading, roster, overrides, sync, scorecards, sample kit, Convex backend
 npm run build
 ```
 
@@ -113,3 +113,40 @@ GET  {base}/pull?cursor=<serverSeq>&limit=<n>            → { changes: (OutboxE
 ```
 
 Entry kinds: `scan.created`, `override.added`, `key.version` (only the newest pending version per exam is sent), `roster.imported`, `conflict.resolved`. Scans and patches are append-only, so devices never overwrite each other; two scans of one roll number with different effective answers are held as `SYNC_CONFLICT` until someone picks the sheet to keep.
+
+## Backend: Convex (+ Vercel)
+
+Without `NEXT_PUBLIC_CONVEX_URL` the app is local-first exactly as above. With it, `/scan` uploads sheets to the selected cloud exam and `/grade` reads live Convex subscriptions.
+
+| Path | Purpose |
+|---|---|
+| `convex/schema.ts` | `users`, `orgs`, `memberships` (owner/admin/teacher/viewer), `templates`, `rosters`, `exams`, `answerKeys` (immutable versions), `scans` (append-only), `overrides` (audit log), `conflictResolutions`, `examAnalytics` |
+| `convex/validators.ts` | Convex validators mirroring the TypeScript contracts (QuestionRule, DecodedFields, compact readouts, patches) |
+| `convex/exams.ts` | `create` (Zod-validated template, blank key v1), `listByOrg`, `get`, `setStatus`, `setRoster`, `getRoster` |
+| `convex/grading.ts` | `submitScanBatch` (idempotent, duplicate/conflict detection), `listScans` (paginated feed), `getScan` (+ image URL), `getAnswerKey`, `updateAnswerKey` (optimistic concurrency), `addOverrides`, `resolveConflict`, `getExamAnalytics`, `generateUploadUrl` |
+| `convex/analytics.ts` | Background job: pages through all scans, applies overrides/resolutions, runs the shared scorer + item analysis, stores a revisioned snapshot |
+| `convex/orgs.ts`, `convex/users.ts`, `convex/lib/access.ts` | Schools, membership/roles, identity guards (provider-agnostic `ctx.auth`) |
+| `src/app/ConvexClientProvider.tsx` | `ConvexProvider` / `ConvexProviderWithAuth` around the App Router |
+| `src/components/cloud/*` | Session (school/exam selection, scan upload with retry), live exam data (typed `useQuery`/`usePaginatedQuery`/`useMutation`), cloud panel |
+| `tests/convex/` | `convex-test` suite: tenancy, idempotency, conflicts, key concurrency, overrides, analytics parity with the browser |
+
+Grading logic lives once in `src/lib` and runs in both places: clients rescore instantly when a key version or scan arrives; the server snapshot powers `getExamAnalytics` (a single Convex query cannot read a 5,000-sheet exam, so the snapshot is recomputed by a scheduled action and marked `stale` until it catches up).
+
+### Develop locally
+
+```bash
+npx convex dev                                   # links/creates a deployment, writes .env.local
+node scripts/dev-auth.mjs setup | sh             # dev-only JWT issuer on THIS deployment
+NEXT_PUBLIC_OMR_AUTH=dev npm run dev
+node scripts/dev-auth.mjs token alice "Alice" alice@school.test   # paste in the Cloud panel
+```
+
+### Auth
+
+`convex/auth.config.ts` reads one variable, `OMR_AUTH_PROVIDERS` (JSON list), per deployment. Production sets only its real provider (e.g. Clerk: `[{"domain":"https://<clerk-issuer>","applicationID":"convex"}]`) and swaps `ConvexProvider` for `ConvexProviderWithClerk` (or Convex Auth's provider). Never put the dev issuer on production.
+
+### Deploy on Vercel
+
+1. In Convex, create a production deploy key; in Vercel add `CONVEX_DEPLOY_KEY` (Production).
+2. Vercel build command: `npx convex deploy --cmd 'npm run build'` (sets `NEXT_PUBLIC_CONVEX_URL` for the build).
+3. `npx convex env set --prod OMR_AUTH_PROVIDERS '<json>'` and the auth provider's own Vercel variables. Leave `NEXT_PUBLIC_OMR_AUTH` unset in production.

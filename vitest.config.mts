@@ -4,5 +4,5 @@ import path from "node:path";
 export default defineConfig({
   css: { postcss: { plugins: [] } },
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
-  test: { environment: "node", include: ["src/**/*.test.ts", "tests/**/*.test.ts"], testTimeout: 60000 },
+  test: { environment: "node", include: ["src/**/*.test.ts", "tests/**/*.test.ts"], testTimeout: 60000, server: { deps: { inline: ["convex-test"] } } },
 });
