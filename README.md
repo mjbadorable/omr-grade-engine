@@ -114,6 +114,32 @@ GET  {base}/pull?cursor=<serverSeq>&limit=<n>            → { changes: (OutboxE
 
 Entry kinds: `scan.created`, `override.added`, `key.version` (only the newest pending version per exam is sent), `roster.imported`, `conflict.resolved`. Scans and patches are append-only, so devices never overwrite each other; two scans of one roll number with different effective answers are held as `SYNC_CONFLICT` until someone picks the sheet to keep.
 
+## Sprint 5: Roles & syllabus-driven OBE pipeline
+
+**Zero burden for faculty.** Nobody types POs, COs or a Table of Specifications.
+
+| Role | Can do |
+| --- | --- |
+| `teacher` | drop syllabi, build exams, set keys, scan, reconcile rosters, view cohort analytics |
+| `admin` | everything a teacher can, plus `/admin`: faculty roles (teacher ↔ admin), domain policy, global grading formula, syllabi repository, audit trail |
+| `owner` | the school's creator: an admin whose role cannot be changed |
+| `viewer` | read-only |
+
+The matrix lives in `src/lib/roles/policy.ts` and is enforced server-side in `convex/` (`requireRole`); the UI only hides what the server would refuse anyway.
+
+**Syllabus drop (`/designer`).** Drop the official syllabus PDF (e.g. `IT 321 Information Assurance and Security 1`):
+
+1. `src/lib/syllabus/parse-syllabus.ts` extracts text with `pdfjs-dist` (table cells on a row become ` | `) and parses the course header, PO A–I, CO1–CO4 (with PO links), modules 1–9 (topics, covered COs, hours) and the lecture/lab weighting (falls back to USA CLASE 67/33 with a warning).
+2. Pick the period: Prelim = modules 1–3, Midterm = 4–6, Final Term = 7–9.
+3. `src/lib/syllabus/tos.ts` auto-generates the Table of Specifications (questions per module by hours, else topic count; sliders rebalance so the total never drifts) and assigns each question a module and a CO.
+4. The sheet title/subtitle/length are configured; the plan is remembered in the browser and stamped onto the answer key (`outcomeCode`, `moduleNumber`) when you grade, or saved with the cloud exam (`syllabi` table, `exams.syllabusId/examPeriod`).
+
+**Outcomes (`/grade` → Outcomes tab).** CO mastery cards (points scored ÷ points possible, flagged below 75 %), PO A–I roll-up (point-weighted through each CO's PO links) and a one-click accreditation PDF pairing KR-20/SEM/item quality with outcome attainment. Bonus and dropped items are excluded from attainment.
+
+**Admin portal (`/admin`).** Faculty directory with role elevation, syllabi repository, a searchable audit trail (every answer-key change with a diff of what changed, grade override, conflict resolution, role/policy/syllabus event), and policy: `@usa.edu.ph` domain allowlist for adding members and the global grading formula (default `Term = 67 % Lecture + 33 % Lab`, major exam 50 % of lecture, lab exam 30 % of lab).
+
+Tests: `tests/syllabus/` (parser incl. a real PDF round-trip, TOS, attainment, report) and `tests/roles/` (role matrix, formula, audit search, and the Convex functions enforcing them).
+
 ## Backend: Convex (+ Vercel)
 
 Without `NEXT_PUBLIC_CONVEX_URL` the app is local-first exactly as above. With it, `/scan` uploads sheets to the selected cloud exam and `/grade` reads live Convex subscriptions.

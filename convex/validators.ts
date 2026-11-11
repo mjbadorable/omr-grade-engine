@@ -15,6 +15,9 @@ const ruleBase = {
   bonus: v.boolean(),
   dropped: v.boolean(),
   tags: v.object({ subject: v.optional(v.string()), section: v.optional(v.string()) }),
+  /** syllabus outcome ("CO1".."CO4") and module this question measures */
+  outcomeCode: v.optional(v.string()),
+  moduleNumber: v.optional(v.number()),
 };
 export const questionRule = v.union(
   v.object({ ...ruleBase, type: v.literal("choice"), optionCount: v.number(), optionLabels: v.array(v.string()), correct: v.array(v.number()), mode: v.union(v.literal("ALL_MATCH"), v.literal("ANY_MATCH"), v.literal("PARTIAL_CREDIT")) }),
@@ -75,3 +78,28 @@ export const student = v.object({
   phone: v.optional(v.string()),
   guardianContact: v.optional(v.string()),
 });
+
+// ---- syllabus / OBE (src/lib/syllabus/types.ts)
+export const examPeriod = v.union(v.literal("PRELIM"), v.literal("MIDTERM"), v.literal("FINAL"));
+export const syllabusBody = {
+  courseCode: v.string(),
+  courseTitle: v.string(),
+  term: v.string(),
+  /** PO A–I */
+  programOutcomes: v.array(v.object({ code: v.string(), description: v.string() })),
+  /** CO1–CO4, each linked to the POs it supports */
+  courseOutcomes: v.array(v.object({ code: v.string(), description: v.string(), programOutcomes: v.array(v.string()) })),
+  modules: v.array(v.object({ number: v.number(), title: v.string(), topics: v.array(v.string()), courseOutcomes: v.array(v.string()), period: examPeriod, hours: v.optional(v.number()) })),
+  gradingPolicy: v.object({
+    lectureWeight: v.number(),
+    labWeight: v.number(),
+    components: v.array(v.object({ name: v.string(), weight: v.number(), group: v.union(v.literal("lecture"), v.literal("lab")) })),
+    source: v.union(v.literal("syllabus"), v.literal("default")),
+  }),
+};
+/** question → module / outcome produced by the Table of Specifications */
+export const questionOutcome = v.object({ questionNumber: v.number(), moduleNumber: v.number(), outcomeCode: v.union(v.string(), v.null()) });
+
+// ---- governance (src/lib/admin)
+export const gradingFormula = v.object({ lectureWeight: v.number(), labWeight: v.number(), lectureMajorExamWeight: v.number(), labExamWeight: v.number() });
+export const adminAuditKind = v.union(v.literal("ROLE_CHANGE"), v.literal("POLICY_CHANGE"), v.literal("SYLLABUS_UPLOAD"), v.literal("SYLLABUS_DELETE"));

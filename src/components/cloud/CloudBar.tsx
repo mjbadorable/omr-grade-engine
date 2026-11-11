@@ -4,6 +4,8 @@ import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { OMRTemplate } from "@/lib/omr/schema";
+import { readStoredPlan } from "@/lib/syllabus/plan-store";
+import { PERIOD_LABEL } from "@/lib/syllabus/types";
 import { useCloudSession } from "./CloudSession";
 
 const ClerkControls = dynamic(() => import("./ClerkControls"), { ssr: false });
@@ -91,12 +93,19 @@ export default function CloudBar({ localTemplate }: { localTemplate?: OMRTemplat
                     </div>
                   )}
                   {msg && <p className="text-xs text-emerald-700">{msg}</p>}
-                  {localTemplate && (
-                    <button type="button" className="w-full rounded-md bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-500"
-                      onClick={() => run(() => s.createExam(localTemplate.title, localTemplate))}>
-                      Create cloud exam from “{localTemplate.title}”
-                    </button>
-                  )}
+                  {localTemplate && (() => {
+                    const plan = readStoredPlan();
+                    const linked = plan && plan.templateId === localTemplate.templateId && plan.tos.totalQuestions === localTemplate.questionCount ? plan : null;
+                    return (
+                      <>
+                        {linked && <p className="text-xs text-zinc-500" data-testid="cloud-syllabus-link">Linked to <b>{linked.syllabus.courseCode}</b> · {PERIOD_LABEL[linked.period]}: outcomes are saved with the exam.</p>}
+                        <button type="button" className="w-full rounded-md bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-500"
+                          onClick={() => run(() => s.createExam(localTemplate.title, localTemplate, linked))}>
+                          Create cloud exam from “{localTemplate.title}”
+                        </button>
+                      </>
+                    );
+                  })()}
                 </>
               )}
             </>

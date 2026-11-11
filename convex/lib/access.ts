@@ -11,8 +11,9 @@ import { checkInstitutionalEmail, parseDomainList } from "../../src/lib/cloud/al
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
+import { RANK } from "../../src/lib/roles/policy";
+
 export type Role = Doc<"memberships">["role"];
-const RANK: Record<Role, number> = { viewer: 0, teacher: 1, admin: 2, owner: 3 };
 
 export function fail(code: string, message: string, extra: Record<string, unknown> = {}): never {
   throw new ConvexError({ code, message, ...extra });
@@ -63,4 +64,9 @@ export async function requireExam(ctx: QueryCtx | MutationCtx, examId: Id<"exams
   if (!exam) fail("NOT_FOUND", "Exam not found.");
   const access = await requireRole(ctx, exam.orgId, min);
   return { exam, ...access };
+}
+
+/** Append an admin-visible audit event (role changes, policy, syllabi). */
+export async function logAudit(ctx: MutationCtx, orgId: Id<"orgs">, actorId: Id<"users">, kind: Doc<"auditEvents">["kind"], summary: string, detail?: string) {
+  await ctx.db.insert("auditEvents", { orgId, kind, actorId, summary, ...(detail ? { detail } : {}), at: Date.now() });
 }

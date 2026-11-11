@@ -8,6 +8,7 @@ import { writeStoredTemplate } from "@/lib/storage/template-store";
 import type { LayoutSettings } from "@/lib/omr/schema";
 import DebugDrawer, { IssueList } from "./DebugDrawer";
 import SettingsPanel from "./SettingsPanel";
+import SyllabusDropzone from "./SyllabusDropzone";
 import SheetPreview, { type PreviewOverlays } from "./SheetPreview";
 
 function download(name: string, data: BlobPart, type: string) {
@@ -122,6 +123,8 @@ export default function SheetDesigner() {
           </button>
         </div>
       </header>
+
+      <SyllabusDropzone settings={settings} onConfigure={(next) => { setSettings(next); setPageIndex(0); }} />
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <aside className="shrink-0 overflow-y-auto border-b border-zinc-200 bg-white p-4 lg:w-[360px] lg:border-r lg:border-b-0 dark:border-zinc-800 dark:bg-zinc-950">

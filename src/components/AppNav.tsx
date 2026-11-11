@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useCloudSession } from "@/components/cloud/CloudSession";
+import { isAdmin, type Role } from "@/lib/roles/policy";
 
 const LINKS = [
   { href: "/designer", label: "1 · Design" },
@@ -12,9 +14,13 @@ const LINKS = [
 /** Workflow navigation shared by every page. */
 export default function AppNav() {
   const path = usePathname();
+  const cloud = useCloudSession();
+  // Admin link only for admins of the selected school (the server enforces the real check).
+  const role = (cloud?.orgs?.find((o) => o._id === cloud.selection.orgId)?.role ?? null) as Role | null;
+  const links = isAdmin(role) ? [...LINKS, { href: "/admin", label: "Admin" }] : LINKS;
   return (
     <nav aria-label="Workflow" className="flex items-center gap-1 text-sm">
-      {LINKS.map((l) => {
+      {links.map((l) => {
         const on = path === l.href || (l.href === "/designer" && path === "/");
         return (
           <Link key={l.href} href={l.href} aria-current={on ? "page" : undefined}

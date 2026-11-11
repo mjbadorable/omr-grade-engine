@@ -28,6 +28,10 @@ interface RuleBase {
   /** removed from the test: no score, no max, no statistics */
   dropped: boolean;
   tags: { subject?: string; section?: string };
+  /** course outcome this question measures ("CO1".."CO4"), set from the syllabus TOS */
+  outcomeCode?: string;
+  /** syllabus module the question was written for */
+  moduleNumber?: number;
 }
 
 export interface ChoiceRule extends RuleBase {

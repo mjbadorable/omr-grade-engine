@@ -13,6 +13,7 @@ import { setDevToken } from "@/lib/cloud/dev-auth";
 import { type OMRTemplate, OMRTemplateSchema } from "@/lib/omr/schema";
 import { getScan } from "@/lib/storage/scan-store";
 import { identity } from "@/lib/sync/local-sync";
+import type { SyllabusPlan } from "@/lib/syllabus/plan-store";
 import type { ScanOutput } from "@/lib/vision/scan-sheet";
 
 const SELECTION_KEY = "omr:cloudSelection";
@@ -37,7 +38,8 @@ export interface CloudSessionValue {
   /** template of the selected exam (validated), undefined while loading */
   examTemplate: OMRTemplate | null | undefined;
   createOrg: (name: string) => Promise<Id<"orgs">>;
-  createExam: (name: string, template: OMRTemplate) => Promise<Id<"exams">>;
+  /** with a syllabus plan the exam is bound to the (saved or updated) syllabus and its TOS outcome codes */
+  createExam: (name: string, template: OMRTemplate, plan?: SyllabusPlan | null) => Promise<Id<"exams">>;
   addTeacher: (email: string, role: "teacher" | "admin" | "viewer") => Promise<void>;
   /** upload one scanned sheet (+ de-warped preview) to the selected exam */
   uploadScan: (s: { sheetId: string; result: ScanOutput; preview: Blob | null }) => Promise<ScanSubmitResult | null>;
@@ -87,6 +89,7 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
 
   const createOrgM = useMutation(api.orgs.create);
   const createExamM = useMutation(api.exams.create);
+  const upsertSyllabusM = useMutation(api.syllabi.upsert);
   const addMemberM = useMutation(api.orgs.addMember);
   const uploadUrlM = useMutation(api.grading.generateUploadUrl);
   const submitM = useMutation(api.grading.submitScanBatch);
@@ -143,8 +146,11 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
     selectOrg: (orgId) => persist({ orgId, examId: null, layoutHash: null }),
     selectExam: (examId) => persist({ ...selection, examId, layoutHash: exams?.find((e) => e._id === examId)?.layoutHash ?? null }),
     createOrg: async (name) => { const id = await createOrgM({ name }); persist({ orgId: id, examId: null, layoutHash: null }); return id; },
-    createExam: async (name, template) => {
-      const id = await createExamM({ orgId: selection.orgId!, name, template });
+    createExam: async (name, template, plan) => {
+      const orgId = selection.orgId!;
+      const usePlan = plan && plan.tos.totalQuestions === template.questionCount ? plan : null;
+      const syllabusId = usePlan ? await upsertSyllabusM({ orgId, syllabus: usePlan.syllabus }) : undefined;
+      const id = await createExamM({ orgId, name, template, ...(usePlan && syllabusId ? { syllabusId, examPeriod: usePlan.period, questionOutcomes: usePlan.assignments } : {}) });
       persist({ ...selection, examId: id, layoutHash: template.layoutHash });
       return id;
     },

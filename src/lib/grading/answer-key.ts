@@ -139,7 +139,7 @@ export function formatSetMappingText(m: SetMapping): string {
 
 // ------------------------------------------------------------------ JSON codec
 const tags = z.object({ subject: z.string().optional(), section: z.string().optional() });
-const base = { questionNumber: z.number().int().positive(), points: z.number().min(0), negative: z.number().min(0), bonus: z.boolean(), dropped: z.boolean(), tags };
+const base = { questionNumber: z.number().int().positive(), points: z.number().min(0), negative: z.number().min(0), bonus: z.boolean(), dropped: z.boolean(), tags, outcomeCode: z.string().optional(), moduleNumber: z.number().int().positive().optional() };
 const RuleSchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("choice"), optionCount: z.number().int().min(2).max(10), optionLabels: z.array(z.string()), correct: z.array(z.number().int().nonnegative()), mode: z.enum(["ALL_MATCH", "ANY_MATCH", "PARTIAL_CREDIT"]) }),
   z.object({ ...base, type: z.literal("numeric"), value: z.number().nullable(), tolerance: z.number().min(0) }),

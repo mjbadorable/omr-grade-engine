@@ -7,7 +7,7 @@
  */
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { answerKeyBody, compactReadouts, decodedFields, originalState, overriddenOption, overrideTarget, role, student } from "./validators";
+import { adminAuditKind, answerKeyBody, compactReadouts, decodedFields, examPeriod, gradingFormula, originalState, overriddenOption, overrideTarget, role, student, syllabusBody } from "./validators";
 
 export default defineSchema({
   users: defineTable({
@@ -41,6 +41,35 @@ export default defineSchema({
     createdBy: v.id("users"),
   }).index("by_org_hash", ["orgId", "layoutHash"]),
 
+  /** Course syllabi dropped by faculty; one per (school, course, term), re-dropping updates it. */
+  syllabi: defineTable({
+    orgId: v.id("orgs"),
+    ...syllabusBody,
+    uploadedBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.optional(v.number()),
+  }).index("by_org", ["orgId"]).index("by_org_course", ["orgId", "courseCode", "term"]),
+
+  /** Admin-governed institutional policy (one document per school). */
+  orgPolicies: defineTable({
+    orgId: v.id("orgs"),
+    /** extra sign-in restriction on top of the deployment allowlist; empty = deployment default only */
+    allowedDomains: v.array(v.string()),
+    gradingFormula,
+    updatedBy: v.id("users"),
+    updatedAt: v.number(),
+  }).index("by_org", ["orgId"]),
+
+  /** Admin-visible events that have no table of their own (roles, policy, syllabi). Append-only. */
+  auditEvents: defineTable({
+    orgId: v.id("orgs"),
+    kind: adminAuditKind,
+    actorId: v.id("users"),
+    summary: v.string(),
+    detail: v.optional(v.string()),
+    at: v.number(),
+  }).index("by_org", ["orgId", "at"]),
+
   rosters: defineTable({
     orgId: v.id("orgs"),
     name: v.string(),
@@ -59,6 +88,9 @@ export default defineSchema({
     /** bumped by every change that affects grades; drives analytics recomputation */
     revision: v.number(),
     status: v.union(v.literal("draft"), v.literal("open"), v.literal("closed")),
+    /** course syllabus this exam assesses (outcome attainment is measured against it) */
+    syllabusId: v.optional(v.id("syllabi")),
+    examPeriod: v.optional(examPeriod),
     createdBy: v.id("users"),
   }).index("by_org", ["orgId"]).index("by_org_hash", ["orgId", "layoutHash"]),
 

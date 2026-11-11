@@ -22,6 +22,10 @@ import type { Roster } from "@/lib/roster/schema";
 import { studentName } from "@/lib/samples/names";
 import { clearScans, getMeta, listOverrides, listResolutions, listScans, putOverride, putResolution, setMeta, type StoredScan } from "@/lib/storage/scan-store";
 import { readStoredKey, readStoredTemplate, writeStoredKey, writeStoredTemplate } from "@/lib/storage/template-store";
+import { computeAttainment } from "@/lib/syllabus/attainment";
+import { readStoredPlan, type SyllabusPlan } from "@/lib/syllabus/plan-store";
+import { applyOutcomesToKey, hasOutcomes } from "@/lib/syllabus/tos";
+import { PERIOD_LABEL, type Syllabus } from "@/lib/syllabus/types";
 import { type ConflictGroup, detectConflicts, sheetDisposition, type SyncedSheet } from "@/lib/sync/conflicts";
 import { identity, localOutbox, makeEngine, recordKey, recordOverride, recordResolution, recordRoster, rosterMetaKey, setSyncEndpoint, setTeacherId, syncEndpoint } from "@/lib/sync/local-sync";
 import type { ConflictResolution } from "@/lib/sync/types";
@@ -30,11 +34,12 @@ import ConflictPanel from "./ConflictPanel";
 import Gradebook from "./Gradebook";
 import ItemAnalysisView from "./ItemAnalysisView";
 import KeyEditor from "./KeyEditor";
+import OutcomesView from "./OutcomesView";
 import ReviewModal from "./review-modal";
 import RosterPanel from "./RosterPanel";
 import SyncPanel from "./SyncPanel";
 
-type Tab = "key" | "gradebook" | "roster" | "analysis";
+type Tab = "key" | "gradebook" | "roster" | "analysis" | "outcomes";
 const btn = "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40";
 const outline = `${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`;
 const INSTITUTE_KEY = "omr:institute";
@@ -67,6 +72,8 @@ export default function GradeApp() {
   const [pending, setPending] = useState(0);
   const [who, setWho] = useState({ teacherId: "teacher", endpoint: "" });
   const [institute, setInstitute] = useState("");
+  const [plan, setPlan] = useState<SyllabusPlan | null>(null);
+  const [exportingObe, setExportingObe] = useState(false);
 
   // ---- cloud (Convex) mode: the selected exam's live data replaces the local stores
   const cloud = useCloudExam();
@@ -79,7 +86,12 @@ export default function GradeApp() {
 
   const load = useCallback(async (t: OMRTemplate) => {
     setTemplate(t);
-    setKey(readStoredKey(t.layoutHash) ?? keyFromTemplate(t));
+    let k = readStoredKey(t.layoutHash) ?? keyFromTemplate(t);
+    // Zero-burden OBE: a syllabus dropped in the designer for this very sheet tags the key with outcomes.
+    const p = readStoredPlan();
+    setPlan(p && p.templateId === t.templateId ? p : null);
+    if (p && p.templateId === t.templateId && !hasOutcomes(k) && p.tos.totalQuestions === k.questions.size) k = applyOutcomesToKey(k, p.assignments);
+    setKey(k);
     const [scans, ov, res, ro] = await Promise.all([
       listScans(t.layoutHash).catch(() => []), listOverrides().catch(() => []), listResolutions(t.layoutHash).catch(() => []), getMeta<Roster>(rosterMetaKey(t.layoutHash)).catch(() => null),
     ]);
@@ -175,6 +187,28 @@ export default function GradeApp() {
     const report = analyzeItems(sheets, deferredKey);
     return { sheets, report, ms: performance.now() - t0 };
   }, [counted, deferredKey, disposition]);
+
+  const syllabus: Syllabus | null = (cloud ? cloud.syllabus : plan?.syllabus) ?? null;
+  const examPeriod = cloud ? cloud.examPeriod : plan?.period ?? null;
+  const attainment = useMemo(() => (graded && deferredKey && hasOutcomes(deferredKey) ? computeAttainment(graded.sheets, deferredKey, syllabus) : null), [graded, deferredKey, syllabus]);
+
+  async function exportAccreditation() {
+    if (!graded || !attainment || !template || !key) return;
+    setExportingObe(true);
+    try {
+      const { buildAccreditationReport } = await import("@/lib/syllabus/report");
+      const examName = cloud?.name ?? template.title;
+      const bytes = await buildAccreditationReport({
+        institute: institute || template.pages[0].texts.find((x) => x.id === "p0:subtitle")?.text || "Assessment report",
+        examName, period: examPeriod, syllabus, psychometrics: graded.report, attainment, generatedAt: new Date(),
+      });
+      download(`${syllabus?.courseCode.replace(/\s+/g, "") ?? "exam"}-${examPeriod?.toLowerCase() ?? "report"}-accreditation.pdf`, bytes as BlobPart, "application/pdf");
+    } catch (e) {
+      setNotice(`Accreditation report failed: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setExportingObe(false);
+    }
+  }
 
   const recon = useMemo(() => reconcile(roster, counted.map((s) => ({ sheetId: s.sheetId, rollNumber: s.fields.rollNumber }))), [roster, counted]);
   const names = useMemo(() => new Map([...recon.studentBySheet].map(([id, st]) => [id, st.name])), [recon]);
@@ -365,6 +399,7 @@ export default function GradeApp() {
             ["gradebook", `Students (${graded?.sheets.length ?? 0})${openConflicts ? ` · ${openConflicts} conflict${openConflicts > 1 ? "s" : ""}` : ""}`],
             ["roster", `Roster${roster ? ` · ${recon.summary.absent} absent` : ""}`],
             ["analysis", "Item analysis"],
+            ["outcomes", `Outcomes${attainment?.belowTarget.length ? ` · ${attainment.belowTarget.length} below target` : ""}`],
           ] as const).map(([t, label]) => (
             <button key={t} role="tab" aria-selected={tab === t} type="button" onClick={() => setTab(t)}
               className={`rounded-md px-3 py-1 ${tab === t ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}>{label}</button>
@@ -405,6 +440,15 @@ export default function GradeApp() {
           </p>
         )}
         {tab === "analysis" && (graded && graded.sheets.length >= 2 ? <ItemAnalysisView report={graded.report} /> : <Empty />)}
+        {tab === "outcomes" && (!key || !hasOutcomes(key) ? (
+          <div className="mx-auto max-w-xl rounded-lg border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700" data-testid="outcomes-empty">
+            <p className="font-medium text-zinc-700 dark:text-zinc-200">No syllabus outcomes on this exam yet</p>
+            <p className="mt-1">Drop the course syllabus PDF in <Link href="/designer" className="text-indigo-600 underline">the designer</Link>: course outcomes are mapped to questions automatically, and attainment appears here once sheets are graded.</p>
+          </div>
+        ) : attainment && graded && graded.sheets.length ? (
+          <OutcomesView report={attainment} exporting={exportingObe} onExport={exportAccreditation}
+            subtitle={[syllabus ? `${syllabus.courseCode} ${syllabus.courseTitle}` : "Outcome codes from the answer key", examPeriod ? PERIOD_LABEL[examPeriod] : ""].filter(Boolean).join(" · ")} />
+        ) : <Empty />)}
       </main>
 
       {openSheet && openSource && (

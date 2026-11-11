@@ -13,6 +13,7 @@ import { answerKeyToBody, bodyToAnswerKey, expandReadouts, overrideRowToPatch, r
 import type { AnswerKey } from "@/lib/grading/types";
 import type { OMRTemplate } from "@/lib/omr/schema";
 import type { ManualOverridePatch } from "@/lib/review/overrides";
+import type { ExamPeriod, Syllabus } from "@/lib/syllabus/types";
 import type { Roster } from "@/lib/roster/schema";
 import type { StoredScan } from "@/lib/storage/scan-store";
 import type { ConflictResolution } from "@/lib/sync/types";
@@ -35,6 +36,9 @@ export interface CloudExamValue {
   examId: Id<"exams">;
   name: string;
   role: string;
+  /** syllabus the exam is bound to (OBE attainment is measured against it) */
+  syllabus: Syllabus | null | undefined;
+  examPeriod: ExamPeriod | null;
   template: OMRTemplate;
   key: AnswerKey | undefined;
   scans: CloudScanRow[] | undefined;
@@ -61,6 +65,8 @@ export function CloudExamProvider({ children }: { children: ReactNode }) {
   const examId = session?.isAuthenticated && session.me ? session.selection.examId : null;
   const args = examId ? { examId } : "skip";
   const exam = useQuery(api.exams.get, args);
+  const syllabusId = exam?.exam.syllabusId;
+  const syllabus = useQuery(api.syllabi.get, syllabusId ? { syllabusId } : "skip");
   const keyDoc = useQuery(api.grading.getAnswerKey, args);
   const overrides = useQuery(api.grading.listOverrides, args);
   const resolutions = useQuery(api.grading.listResolutions, args);
@@ -113,7 +119,8 @@ export function CloudExamProvider({ children }: { children: ReactNode }) {
     if (!examId || !exam || !template) return null;
     const snap = analytics && "snapshot" in analytics ? analytics.snapshot : null;
     return {
-      examId, name: exam.exam.name, role: exam.role, template, key, scans, loadingScans: feed.status === "LoadingMore" || feed.status === "LoadingFirstPage",
+      examId, name: exam.exam.name, role: exam.role, template,
+      syllabus: syllabusId ? (syllabus as Syllabus | null | undefined) : null, examPeriod: exam.exam.examPeriod ?? null, key, scans, loadingScans: feed.status === "LoadingMore" || feed.status === "LoadingFirstPage",
       patches, resolutions: res, roster,
       analytics: analytics ? { status: analytics.status, kr20: snap?.kr20 ?? null, mean: snap?.mean ?? null, gradedCount: snap?.gradedCount ?? 0, openConflicts: snap?.openConflicts ?? 0, keyVersion: snap?.keyVersion ?? null } : undefined,
       saveKey,
@@ -122,7 +129,7 @@ export function CloudExamProvider({ children }: { children: ReactNode }) {
       setRoster: async (r) => { await setRosterM({ examId, roster: r }); },
       loadScanDetail,
     };
-  }, [examId, exam, template, key, scans, feed.status, patches, res, roster, analytics, saveKey, addOverridesM, resolveM, setRosterM, loadScanDetail]);
+  }, [examId, exam, syllabus, syllabusId, template, key, scans, feed.status, patches, res, roster, analytics, saveKey, addOverridesM, resolveM, setRosterM, loadScanDetail]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
