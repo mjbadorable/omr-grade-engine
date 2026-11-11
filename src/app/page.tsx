@@ -1,5 +1,5 @@
-import SheetDesigner from "@/components/designer/SheetDesigner";
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return <SheetDesigner />;
+  redirect("/designer");
 }

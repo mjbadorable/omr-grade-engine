@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import AppNav from "@/components/AppNav";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { OMRTemplateSchema, type OMRTemplate } from "@/lib/omr/schema";
 import { readStoredTemplate, writeStoredTemplate } from "@/lib/storage/template-store";
@@ -8,6 +8,7 @@ import type { ScanOutput } from "@/lib/vision/scan-sheet";
 import { ScannerClient } from "@/lib/vision/scanner-client";
 import type { CornerPoints, ScanTelemetry, VisionErrorPayload } from "@/lib/vision/types";
 import { bitmapToJpeg, putScan } from "@/lib/storage/scan-store";
+import { identity, recordScan } from "@/lib/sync/local-sync";
 import ReviewCanvas from "./ReviewCanvas";
 
 interface Job {
@@ -56,11 +57,13 @@ export default function ScannerApp() {
       patchJob(id, { status: "scanning" });
       const { result, preview } = await client.current!.scan(source, { onTelemetry: (t) => patchJob(id, { stage: t.stage }) });
       patchJob(id, { status: "done", result, preview });
-      // hand the result to the gradebook (same browser, IndexedDB)
-      putScan({
+      // hand the result to the gradebook (IndexedDB) and queue it for sync (outbox)
+      const { deviceId, teacherId } = identity();
+      const stored = {
         sheetId: crypto.randomUUID(), layoutHash: result.layoutHash, templateId: result.templateId, name, createdAt: Date.now(),
-        result, preview: preview ? await bitmapToJpeg(preview) : null,
-      }).catch(() => { /* storage unavailable: results stay on screen */ });
+        result, preview: preview ? await bitmapToJpeg(preview) : null, deviceId, teacherId,
+      };
+      putScan(stored).then(() => recordScan(stored)).catch(() => { /* storage unavailable: results stay on screen */ });
     } catch (e) {
       patchJob(id, { status: "error", error: e as VisionErrorPayload });
     }
@@ -91,8 +94,7 @@ export default function ScannerApp() {
     <div className="flex min-h-dvh flex-col">
       <header className="flex flex-wrap items-center gap-3 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
         <h1 className="text-[15px] font-semibold tracking-tight">OMR Scanner</h1>
-        <Link href="/" className="text-sm text-indigo-600 hover:underline dark:text-indigo-400">← Designer</Link>
-        <Link href="/grade" className="text-sm text-indigo-600 hover:underline dark:text-indigo-400">Gradebook →</Link>
+        <AppNav />
         <span className={`ml-auto rounded-full px-2.5 py-0.5 text-xs font-medium ${engine.state === "ready" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : engine.state === "error" ? "bg-red-100 text-red-700" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`}>
           {engine.state === "ready" ? `Vision engine ready · ${engine.ms} ms` : engine.state === "error" ? `Engine failed: ${engine.message}` : "Loading vision engine (OpenCV, cached after first use)…"}
         </span>

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import AppNav from "@/components/AppNav";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { computeLayout, type LayoutResult } from "@/lib/omr/layout-engine";
 import { DEFAULT_SETTINGS, PRESETS } from "@/lib/omr/presets";
@@ -57,6 +57,17 @@ export default function SheetDesigner() {
     writeStoredTemplate(result.template);
   }, [canExport, result]);
 
+  const [kitBusy, setKitBusy] = useState(false);
+  async function downloadKit() {
+    setKitBusy(true);
+    try {
+      const { buildSampleKitZip } = await import("@/lib/samples/kit-builder");
+      download("omr-sample-exam-kit.zip", await buildSampleKitZip(), "application/zip");
+    } finally {
+      setKitBusy(false);
+    }
+  }
+
   async function exportPdf() {
     if (!result) return;
     setBusy(true);
@@ -76,6 +87,7 @@ export default function SheetDesigner() {
           <svg viewBox="0 0 24 24" className="size-6" aria-hidden><rect x="2" y="2" width="5" height="5" fill="currentColor" /><rect x="17" y="2" width="5" height="5" fill="currentColor" /><rect x="2" y="17" width="5" height="5" fill="currentColor" /><rect x="17" y="17" width="5" height="5" fill="currentColor" /><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>
           <h1 className="text-[15px] font-semibold tracking-tight">OMR Sheet Designer</h1>
         </div>
+        <AppNav />
         <select aria-label="Load preset" className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
           value="" onChange={(e) => {
             const p = PRESETS.find((x) => x.id === e.target.value);
@@ -94,7 +106,10 @@ export default function SheetDesigner() {
           </div>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <Link href="/scan" className={`${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}>Scan sheets →</Link>
+          <button type="button" disabled={kitBusy} className={`${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}
+            title="20-question PDF, answer key, roster CSV and 5 simulated scans in one zip" onClick={downloadKit}>
+            {kitBusy ? "Building kit…" : "Sample exam kit"}
+          </button>
           <button type="button" className={`${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`} onClick={() => setDrawer(drawer ? null : "json")}>
             {"{ }"} Inspect JSON
           </button>

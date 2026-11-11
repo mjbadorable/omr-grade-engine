@@ -1,24 +1,40 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import AppNav from "@/components/AppNav";
+import { renderScorecards } from "@/lib/export/scorecard-client";
+import type { ScorecardInput } from "@/lib/export/scorecard-generator";
+import { computeClassStanding } from "@/lib/export/standing";
 import { keyFromScannedAnswers, keyFromTemplate, parseKey, serializeKey, updateKey } from "@/lib/grading/answer-key";
 import { gradebookRows, toCsv, toWorkbook } from "@/lib/grading/export";
 import { analyzeItems } from "@/lib/grading/item-analysis";
 import { rescoreBatch } from "@/lib/grading/scorer";
 import { mulberry32, simulateClass } from "@/lib/grading/simulate";
-import type { AnswerKey, ChoiceRule, ScanInput } from "@/lib/grading/types";
+import type { AnswerKey, ChoiceRule, ScanInput, ScoredSheet } from "@/lib/grading/types";
 import { type OMRTemplate, OMRTemplateSchema } from "@/lib/omr/schema";
-import { clearScans, listScans, type StoredScan } from "@/lib/storage/scan-store";
+import { applyOverrides, type ManualOverridePatch } from "@/lib/review/overrides";
+import { reconcile } from "@/lib/roster/reconcile";
+import type { Roster } from "@/lib/roster/schema";
+import { studentName } from "@/lib/samples/names";
+import { clearScans, getMeta, listOverrides, listResolutions, listScans, putOverride, putResolution, setMeta, type StoredScan } from "@/lib/storage/scan-store";
 import { readStoredKey, readStoredTemplate, writeStoredKey, writeStoredTemplate } from "@/lib/storage/template-store";
+import { type ConflictGroup, detectConflicts, sheetDisposition, type SyncedSheet } from "@/lib/sync/conflicts";
+import { identity, localOutbox, makeEngine, recordKey, recordOverride, recordResolution, recordRoster, rosterMetaKey, setSyncEndpoint, setTeacherId, syncEndpoint } from "@/lib/sync/local-sync";
+import type { ConflictResolution } from "@/lib/sync/types";
+import type { DecodedFields } from "@/lib/vision/types";
+import ConflictPanel from "./ConflictPanel";
 import Gradebook from "./Gradebook";
-import InspectModal from "./InspectModal";
 import ItemAnalysisView from "./ItemAnalysisView";
 import KeyEditor from "./KeyEditor";
+import ReviewModal from "./review-modal";
+import RosterPanel from "./RosterPanel";
+import SyncPanel from "./SyncPanel";
 
-type Tab = "key" | "gradebook" | "analysis";
+type Tab = "key" | "gradebook" | "roster" | "analysis";
 const btn = "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40";
 const outline = `${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`;
+const INSTITUTE_KEY = "omr:institute";
 
 function download(name: string, data: BlobPart, type: string) {
   const url = URL.createObjectURL(new Blob([data], { type }));
@@ -29,43 +45,83 @@ function download(name: string, data: BlobPart, type: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/** A sheet as the gradebook sees it: raw scanner fields + provenance. Demo sheets have no StoredScan. */
+interface SheetSource { sheetId: string; layoutHash: string; deviceId: string; teacherId: string; createdAt: number; raw: DecodedFields; stored: StoredScan | null }
+
 export default function GradeApp() {
   const [template, setTemplate] = useState<OMRTemplate | null>(null);
   const [key, setKey] = useState<AnswerKey | null>(null);
   const [stored, setStored] = useState<StoredScan[]>([]);
-  const [demo, setDemo] = useState<ScanInput[]>([]);
+  const [demo, setDemo] = useState<SheetSource[]>([]);
+  const [patches, setPatches] = useState<ManualOverridePatch[]>([]);
+  const [resolutions, setResolutions] = useState<ConflictResolution[]>([]);
+  const [roster, setRoster] = useState<Roster | null>(null);
   const [tab, setTab] = useState<Tab>("key");
   const [openId, setOpenId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [pending, setPending] = useState(0);
+  const [who, setWho] = useState({ teacherId: "teacher", endpoint: "" });
+  const [institute, setInstitute] = useState("");
 
-  const load = useCallback((t: OMRTemplate) => {
+  const refreshPending = useCallback(() => { localOutbox().pending().then((p) => setPending(p.length)).catch(() => {}); }, []);
+
+  const load = useCallback(async (t: OMRTemplate) => {
     setTemplate(t);
     setKey(readStoredKey(t.layoutHash) ?? keyFromTemplate(t));
-    listScans(t.layoutHash).then(setStored).catch(() => setStored([]));
+    const [scans, ov, res, ro] = await Promise.all([
+      listScans(t.layoutHash).catch(() => []), listOverrides().catch(() => []), listResolutions(t.layoutHash).catch(() => []), getMeta<Roster>(rosterMetaKey(t.layoutHash)).catch(() => null),
+    ]);
+    setStored(scans); setPatches(ov); setResolutions(res); setRoster(ro);
   }, []);
 
   useEffect(() => {
+    setWho({ teacherId: identity().teacherId, endpoint: syncEndpoint() });
+    try { setInstitute(localStorage.getItem(INSTITUTE_KEY) ?? ""); } catch { /* ignore */ }
     const t = readStoredTemplate();
     if (t) load(t);
-  }, [load]);
+    refreshPending();
+  }, [load, refreshPending]);
 
-  useEffect(() => { if (key && template) writeStoredKey(template.layoutHash, key); }, [key, template]);
+  // ---- persist + queue key versions (debounced so typing does not flood the outbox)
+  const lastQueued = useRef(0);
+  useEffect(() => {
+    if (!key || !template) return;
+    writeStoredKey(template.layoutHash, key);
+    if (key.version === lastQueued.current) return;
+    const h = setTimeout(() => { lastQueued.current = key.version; recordKey({ ...key, layoutHash: template.layoutHash }).then(refreshPending).catch(() => {}); }, 800);
+    return () => clearTimeout(h);
+  }, [key, template, refreshPending]);
 
-  // ---- live rescoring (deferred so typing in the key editor never blocks)
-  const inputs = useMemo<ScanInput[]>(() => [
-    ...stored.map((s) => ({ sheetId: s.sheetId, layoutHash: s.layoutHash, fields: s.result.fields })),
+  // ---- sources → effective fields → conflicts → scoring (all memoised, key deferred)
+  const sources = useMemo<SheetSource[]>(() => [
+    ...stored.map((s) => ({ sheetId: s.sheetId, layoutHash: s.layoutHash, deviceId: s.deviceId ?? "local", teacherId: s.teacherId ?? "teacher", createdAt: s.createdAt, raw: s.result.fields, stored: s })),
     ...demo,
   ], [stored, demo]);
+  const patchesBySheet = useMemo(() => {
+    const m = new Map<string, ManualOverridePatch[]>();
+    for (const p of patches) (m.get(p.sheetId) ?? m.set(p.sheetId, []).get(p.sheetId)!).push(p);
+    return m;
+  }, [patches]);
+  const effective = useMemo(() => sources.map((s) => ({ ...s, fields: applyOverrides(s.raw, patchesBySheet.get(s.sheetId) ?? []) })), [sources, patchesBySheet]);
+  const groups = useMemo(() => detectConflicts(effective as SyncedSheet[], resolutions), [effective, resolutions]);
+  const disposition = useMemo(() => sheetDisposition(groups), [groups]);
+  const counted = useMemo(() => effective.filter((s) => { const d = disposition.get(s.sheetId); return d !== "duplicate" && d !== "superseded"; }), [effective, disposition]);
+
   const deferredKey = useDeferredValue(key);
   const graded = useMemo(() => {
     if (!deferredKey) return null;
     const t0 = performance.now();
-    const sheets = rescoreBatch(inputs, deferredKey);
+    const inputs: ScanInput[] = counted.map((s) => ({ sheetId: s.sheetId, layoutHash: s.layoutHash, fields: s.fields }));
+    const sheets: ScoredSheet[] = rescoreBatch(inputs, deferredKey).map((s) => disposition.get(s.sheetId) === "conflict" ? { ...s, sheetFlags: [...s.sheetFlags, "SYNC_CONFLICT"] } : s);
     const report = analyzeItems(sheets, deferredKey);
     return { sheets, report, ms: performance.now() - t0 };
-  }, [inputs, deferredKey]);
+  }, [counted, deferredKey, disposition]);
+
+  const recon = useMemo(() => reconcile(roster, counted.map((s) => ({ sheetId: s.sheetId, rollNumber: s.fields.rollNumber }))), [roster, counted]);
+  const names = useMemo(() => new Map([...recon.studentBySheet].map(([id, st]) => [id, st.name])), [recon]);
   const stats = useMemo(() => new Map(graded?.report.items.map((i) => [i.questionNumber, i]) ?? []), [graded]);
-  const storedById = useMemo(() => new Map(stored.map((s) => [s.sheetId, s])), [stored]);
+  const sourceById = useMemo(() => new Map(effective.map((s) => [s.sheetId, s])), [effective]);
 
   const keySources = useMemo(() => stored.slice(-20).reverse().map((s) => ({
     id: s.sheetId,
@@ -73,23 +129,60 @@ export default function GradeApp() {
     apply: () => setKey((k) => (k ? keyFromScannedAnswers(k, s.result.fields) : k)),
   })), [stored]);
 
+  // ---- mutations
+  async function addPatches(ps: ManualOverridePatch[]) {
+    setPatches((cur) => [...cur, ...ps]);
+    for (const p of ps) {
+      await putOverride(p).catch(() => {});
+      if (template) await recordOverride(template.layoutHash, p).catch(() => {});
+    }
+    refreshPending();
+  }
+
+  async function importRosterRecord(r: Roster) {
+    if (!template) return;
+    setRoster(r);
+    await setMeta(rosterMetaKey(template.layoutHash), r).catch(() => {});
+    await recordRoster(template.layoutHash, r).catch(() => {});
+    refreshPending();
+  }
+
+  async function keep(group: ConflictGroup, keepSheetId: string) {
+    const r: ConflictResolution = {
+      id: crypto.randomUUID(), layoutHash: group.layoutHash, rollKey: group.rollKey, keepSheetId,
+      supersededSheetIds: group.sheetIds.filter((x) => x !== keepSheetId), teacherId: identity().teacherId, timestamp: Date.now(),
+    };
+    setResolutions((cur) => [...cur, r]);
+    await putResolution(r).catch(() => {});
+    await recordResolution(r).catch(() => {});
+    refreshPending();
+  }
+
   function generateDemo() {
     if (!key) return;
     const rnd = mulberry32(key.version * 7919 + demo.length);
-    // key every unkeyed choice question randomly so the demo has something to grade
     let k = key;
     const next = new Map(k.questions);
     let changed = false;
     for (const [n, r] of next) if (r.type === "choice" && !r.correct.length) { next.set(n, { ...r, correct: [Math.floor(rnd() * r.optionCount)] }); changed = true; }
     if (changed) k = { ...k, questions: next, version: k.version + 1 };
-    // one deliberately "miskeyed" question (students' strong choice differs from the key) to show the warning
     const choice = [...k.questions.values()].filter((r): r is ChoiceRule => r.type === "choice" && !r.dropped);
     const trapQ = choice[Math.min(6, choice.length - 1)];
     const traps = trapQ ? { [trapQ.questionNumber]: (trapQ.correct[0] + 1) % trapQ.optionCount } : {};
     const { scans } = simulateClass(k, { students: 200, seed: Math.floor(rnd() * 1e9), traps, uncertainRate: 0.04 });
+    const now = Date.now();
+    const sheets: SheetSource[] = scans.map((s, i) => ({ sheetId: `demo-${s.sheetId}`, layoutHash: template!.layoutHash, deviceId: "demo-A", teacherId: "Teacher A", createdAt: now + i, raw: s.fields, stored: null }));
+    // a second teacher rescans student #5 and reads Q1 differently → cross-device conflict
+    const dupe = sheets[4];
+    const q1 = dupe.raw.answers[0];
+    sheets.push({ ...dupe, sheetId: `${dupe.sheetId}-B`, deviceId: "demo-B", teacherId: "Teacher B", createdAt: now + 999, raw: { ...dupe.raw, answers: [{ ...q1, marked: [(q1.marked[0] ?? 0) + 1 > 3 ? 0 : (q1.marked[0] ?? 0) + 1] }, ...dupe.raw.answers.slice(1)] } });
+    // roster: everyone except two "unregistered" students, plus three absentees
+    const rosterStudents = scans.filter((_, i) => i !== 10 && i !== 11).map((s, i) => ({ rollNumber: s.fields.rollNumber!, name: studentName(i), section: i % 2 ? "10-A" : "10-B" }));
+    for (let a = 0; a < 3; a++) rosterStudents.push({ rollNumber: String(900001 + a), name: studentName(500 + a), section: "10-A" });
     setKey(k);
-    setDemo(scans.map((s) => ({ ...s, sheetId: `demo-${s.sheetId}` })));
-    setNotice(trapQ ? `Demo: 200 simulated students. Question ${trapQ.questionNumber} is miskeyed on purpose; see Item analysis.` : "Demo: 200 simulated students.");
+    setDemo(sheets);
+    importRosterRecord({ schema: "omr-roster/v1", name: "Demo class", importedAt: now, students: rosterStudents });
+    setNotice(`Demo: 200 simulated students + roster. Q${trapQ?.questionNumber} is miskeyed on purpose, two students are not on the roster, three are absent, and one student was scanned twice by different teachers.`);
     setTab("gradebook");
   }
 
@@ -118,37 +211,78 @@ export default function GradeApp() {
     download(`${key.examId}-v${key.version}-results.xlsx`, toWorkbook(XLSX, graded.sheets, key, graded.report), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   }
 
+  async function scorecards(only?: string) {
+    if (!graded || !template || !key) return;
+    setBusy("Building scorecards…");
+    try {
+      const standing = computeClassStanding(graded.sheets);
+      const chosen = only ? graded.sheets.filter((s) => s.sheetId === only) : [...graded.sheets].sort((a, b) => (names.get(a.sheetId) ?? "~").localeCompare(names.get(b.sheetId) ?? "~") || (a.rollNumber ?? "").localeCompare(b.rollNumber ?? ""));
+      const { cropFromPreview, cropRegions } = await import("@/lib/export/crops");
+      const regions = cropRegions(template);
+      const cards: ScorecardInput[] = [];
+      for (const s of chosen) {
+        const src = sourceById.get(s.sheetId);
+        const st = recon.studentBySheet.get(s.sheetId);
+        const crops: ScorecardInput["crops"] = {};
+        if (src?.stored?.preview) {
+          if (regions.roll) crops.roll = await cropFromPreview(src.stored.preview, src.stored.result, regions.roll).catch(() => undefined);
+          if (regions.signature) crops.signature = await cropFromPreview(src.stored.preview, src.stored.result, regions.signature).catch(() => undefined);
+        }
+        cards.push({
+          institute: institute || template.pages[0].texts.find((x) => x.id === "p0:subtitle")?.text || "Assessment report",
+          examTitle: template.title, date: new Date().toISOString().slice(0, 10),
+          student: { name: st?.name ?? null, rollNumber: st?.rollNumber ?? s.rollNumber, section: st?.section },
+          sheet: s, rank: standing.get(s.sheetId)?.rank ?? null, classSize: graded.sheets.length, percentile: standing.get(s.sheetId)?.percentile ?? null,
+          crops,
+        });
+      }
+      const bytes = await renderScorecards(cards, `${template.title} scorecards`);
+      const file = only ? `scorecard-${chosen[0]?.rollNumber ?? "student"}.pdf` : `${key.examId}-scorecards.pdf`;
+      download(file, bytes as BlobPart, "application/pdf");
+    } catch (e) {
+      setNotice(`Scorecards failed: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (!template || !key) {
     return (
-      <div className="mx-auto max-w-xl p-8 text-center">
-        <h1 className="mb-2 text-xl font-semibold">Gradebook</h1>
-        <p className="mb-4 text-sm text-zinc-500">Design a sheet first (it is remembered in this browser), or load its <code>template-coordinates.json</code>.</p>
-        <div className="flex justify-center gap-2">
-          <Link href="/" className={outline}>Open designer</Link>
-          <label className={`${outline} cursor-pointer`}>Load template JSON<input type="file" accept=".json,application/json" className="sr-only" onChange={(e) => onTemplateFile(e.target.files?.[0])} /></label>
+      <div className="min-h-dvh">
+        <header className="flex items-center gap-4 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950"><h1 className="text-[15px] font-semibold">Gradebook</h1><AppNav /></header>
+        <div className="mx-auto max-w-xl p-8 text-center">
+          <p className="mb-4 text-sm text-zinc-500">Design a sheet first (it is remembered in this browser), load its <code>template-coordinates.json</code>, or download the Sample Exam Kit from the designer.</p>
+          <div className="flex justify-center gap-2">
+            <Link href="/designer" className={outline}>Open designer</Link>
+            <label className={`${outline} cursor-pointer`}>Load template JSON<input type="file" accept=".json,application/json" className="sr-only" onChange={(e) => onTemplateFile(e.target.files?.[0])} /></label>
+          </div>
+          {notice && <p className="mt-3 text-sm text-red-600">{notice}</p>}
         </div>
-        {notice && <p className="mt-3 text-sm text-red-600">{notice}</p>}
       </div>
     );
   }
 
   const openSheet = openId ? graded?.sheets.find((s) => s.sheetId === openId) ?? null : null;
+  const openSource = openId ? sourceById.get(openId) ?? null : null;
   const keyed = [...key.questions.values()].filter((r) => (r.type === "choice" ? r.correct.length : r.type === "numeric" ? r.value !== null : true)).length;
+  const openConflicts = groups.filter((g) => g.kind === "DIVERGENT_ANSWERS" && !g.resolution).length;
 
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
         <h1 className="text-[15px] font-semibold tracking-tight">Gradebook</h1>
-        <nav className="flex gap-3 text-sm">
-          <Link href="/" className="text-indigo-600 hover:underline dark:text-indigo-400">Designer</Link>
-          <Link href="/scan" className="text-indigo-600 hover:underline dark:text-indigo-400">Scanner</Link>
-        </nav>
+        <AppNav />
         <span className="truncate text-sm text-zinc-500">{template.title} · <span className="font-mono text-xs">#{template.layoutHash}</span></span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-zinc-100 px-2.5 py-0.5 font-mono text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title="Every edit creates a new key version and rescores all sheets">
+          <span data-testid="key-status" className="rounded-full bg-zinc-100 px-2.5 py-0.5 font-mono text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title="Every edit creates a new key version and rescores all sheets">
             key v{key.version} · {keyed}/{key.questions.size} keyed · {graded?.sheets.length ?? 0} sheets in {graded ? graded.ms.toFixed(0) : "–"} ms
           </span>
+          <SyncPanel pending={pending} teacherId={who.teacherId} endpoint={who.endpoint}
+            onTeacher={(v) => { setTeacherId(v); setWho((w) => ({ ...w, teacherId: identity().teacherId })); }}
+            onEndpoint={(v) => { setSyncEndpoint(v); setWho((w) => ({ ...w, endpoint: v.trim() })); }}
+            onSync={async () => { const e = makeEngine(); if (!e) return null; const r = await e.syncOnce(); refreshPending(); if (r.pulled) load(template); return r; }} />
           <button type="button" className={outline} onClick={generateDemo}>Demo class</button>
+          <button type="button" className={outline} disabled={!graded?.sheets.length || !!busy} onClick={() => scorecards()}>{busy ?? "Scorecards PDF"}</button>
           <button type="button" className={outline} disabled={!graded?.sheets.length}
             onClick={() => graded && download(`${key.examId}-v${key.version}-results.csv`, "﻿" + toCsv(gradebookRows(graded.sheets, key)), "text/csv;charset=utf-8")}>CSV</button>
           <button type="button" className={`${btn} bg-indigo-600 text-white hover:bg-indigo-500`} disabled={!graded?.sheets.length} onClick={exportXlsx}>Excel</button>
@@ -156,19 +290,28 @@ export default function GradeApp() {
       </header>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-2 text-sm dark:border-zinc-800">
-        <div className="flex gap-1" role="tablist">
-          {([["key", "Answer key"], ["gradebook", `Students (${graded?.sheets.length ?? 0})`], ["analysis", "Item analysis"]] as const).map(([t, label]) => (
+        <div className="flex flex-wrap gap-1" role="tablist">
+          {([
+            ["key", "Answer key"],
+            ["gradebook", `Students (${graded?.sheets.length ?? 0})${openConflicts ? ` · ${openConflicts} conflict${openConflicts > 1 ? "s" : ""}` : ""}`],
+            ["roster", `Roster${roster ? ` · ${recon.summary.absent} absent` : ""}`],
+            ["analysis", "Item analysis"],
+          ] as const).map(([t, label]) => (
             <button key={t} role="tab" aria-selected={tab === t} type="button" onClick={() => setTab(t)}
               className={`rounded-md px-3 py-1 ${tab === t ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}>{label}</button>
           ))}
         </div>
-        <div className="ml-auto flex flex-wrap gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1 text-xs text-zinc-500">School
+            <input className="w-44 rounded border border-zinc-300 px-2 py-1 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" placeholder="for scorecards" value={institute}
+              onChange={(e) => { setInstitute(e.target.value); try { localStorage.setItem(INSTITUTE_KEY, e.target.value); } catch { /* ignore */ } }} />
+          </label>
           <button type="button" className={outline} onClick={() => download(`${key.examId}-key-v${key.version}.json`, JSON.stringify(serializeKey(key), null, 2), "application/json")}>Export key</button>
           <label className={`${outline} cursor-pointer`}>Import key<input type="file" accept=".json,application/json" className="sr-only" onChange={(e) => { onKeyFile(e.target.files?.[0]); e.target.value = ""; }} /></label>
-          <button type="button" className={outline} onClick={() => { if (confirm("Reset the answer key to blank?")) setKey(updateKey(keyFromTemplate(template), {})); }}>Reset key</button>
+          <button type="button" className={outline} onClick={() => { if (confirm("Reset the answer key to blank?")) setKey(updateKey(keyFromTemplate(template), { })); }}>Reset key</button>
           {(stored.length > 0 || demo.length > 0) && (
             <button type="button" className={outline} onClick={async () => {
-              if (!confirm(`Remove ${stored.length} scanned and ${demo.length} demo sheets for this template?`)) return;
+              if (!confirm(`Remove ${stored.length} scanned and ${demo.length} demo sheets for this template? Override and sync logs are kept.`)) return;
               await clearScans(template.layoutHash).catch(() => {});
               setStored([]); setDemo([]);
             }}>Clear sheets</button>
@@ -178,15 +321,26 @@ export default function GradeApp() {
 
       {notice && <div className="border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-sm text-indigo-900 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-indigo-200">{notice} <button type="button" className="ml-2 underline" onClick={() => setNotice(null)}>dismiss</button></div>}
 
-      <main className="flex-1 p-4">
+      <main className="flex-1 space-y-4 p-4">
         {tab === "key" && <KeyEditor answerKey={key} onChange={setKey} stats={stats} keySources={keySources} />}
-        {tab === "gradebook" && (graded?.sheets.length
-          ? <Gradebook sheets={graded.sheets} onOpen={setOpenId} />
-          : <Empty />)}
+        {tab === "gradebook" && (graded?.sheets.length ? (
+          <>
+            <ConflictPanel groups={groups} sheets={sourceById as Map<string, SyncedSheet>} onKeep={keep} onOpen={setOpenId} />
+            <Gradebook sheets={graded.sheets} onOpen={setOpenId} names={names} />
+          </>
+        ) : <Empty />)}
+        {tab === "roster" && <RosterPanel roster={roster} recon={recon} onImport={importRosterRecord} onOpen={setOpenId} download={(n, d, t) => download(n, d, t)} />}
         {tab === "analysis" && (graded && graded.sheets.length >= 2 ? <ItemAnalysisView report={graded.report} /> : <Empty />)}
       </main>
 
-      {openSheet && <InspectModal sheet={openSheet} scan={storedById.get(openSheet.sheetId) ?? null} onClose={() => setOpenId(null)} />}
+      {openSheet && openSource && (
+        <ReviewModal sheet={openSheet} scan={openSource.stored} rawFields={openSource.raw} patches={patchesBySheet.get(openSheet.sheetId) ?? []}
+          answerKey={key} student={recon.studentBySheet.get(openSheet.sheetId) ?? null} teacherId={who.teacherId}
+          onPatches={addPatches} onScorecard={() => scorecards(openSheet.sheetId)} onClose={() => setOpenId(null)} />
+      )}
+      {openId && !openSheet && openSource && (
+        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-md bg-zinc-900 px-3 py-2 text-sm text-white">This sheet is a superseded or duplicate scan and is not graded. <button className="ml-2 underline" onClick={() => setOpenId(null)}>close</button></div>
+      )}
     </div>
   );
 }
@@ -194,7 +348,7 @@ export default function GradeApp() {
 function Empty() {
   return (
     <div className="grid min-h-60 place-items-center rounded-lg border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700">
-      <p>No sheets yet. Scan answer sheets on the <Link href="/scan" className="text-indigo-600 underline">Scanner</Link> page, or click <b>Demo class</b> to try the analytics with simulated students.</p>
+      <p>No sheets yet. Scan answer sheets on the <Link href="/scan" className="text-indigo-600 underline">Scan</Link> page, or click <b>Demo class</b> to try everything with simulated students.</p>
     </div>
   );
 }

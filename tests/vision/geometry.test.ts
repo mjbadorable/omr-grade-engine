@@ -94,3 +94,15 @@ describe("cell transforms", () => {
     expect(gap.detected.x - gap.expected.x).toBeCloseTo(off * 3, 6);
   });
 });
+
+describe("selectCorners", () => {
+  it("always picks the outermost valid quad, even when an inner blob fits the aspect better", async () => {
+    const { selectCorners } = await import("@/lib/vision/detect-corners");
+    const c = (x: number, y: number, area = 400) => ({ center: { x, y }, area, aspect: 1, fill: 0.95, holeRatio: 0 });
+    const real = [c(120, 125), c(1080, 125), c(1080, 1475), c(120, 1475)];
+    // a filled bubble inside the sheet, near the top-left corner, with a fiducial-like area
+    const blob = c(370, 200, 380);
+    const picked = selectCorners([blob, ...real], 960 / 1340, { width: 1200, height: 1600 });
+    expect([picked.tl, picked.tr, picked.br, picked.bl]).toEqual(real.map((r) => r.center));
+  });
+});

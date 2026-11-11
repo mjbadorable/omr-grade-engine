@@ -4,27 +4,28 @@
  * Candidate test (per outer contour from RETR_CCOMP):
  *   - area within a frame-relative band
  *   - rotated bounding box (minAreaRect) aspect within 0.75 – 1.25 (both orientations)
- *   - fill ratio contourArea / rectArea ≥ 0.78  (small blurred squares measure ≈ 0.84)
- *   - approxPolyDP (ε = 6 % of perimeter) gives a convex 4-gon → rejects filled circles
+ *   - fill ratio contourArea / rectArea ≥ 0.80  (small blurred squares ≈ 0.84, filled circles ≈ 0.785)
+ *   - approxPolyDP (ε = 4 % of perimeter) gives a convex 4-gon → rejects filled circles
  *   - holes (CCOMP children) ≤ 12 % of area     → rejects write-boxes and QR finder rings
- * Selection: the largest candidates are tried in combinations until four of them pass
- * `validateCorners` (convex, plausible aspect, big enough), so a stray dark square on the
- * desk does not break detection.
+ * Selection: the largest candidates are tried in combinations; among the quads that pass
+ * `validateCorners` (convex, plausible aspect, big enough) the one with the LARGEST area wins,
+ * because the real fiducials are always the outermost marks of the sheet. A stray dark blob
+ * inside the sheet (e.g. a filled bubble) therefore can never replace a corner.
  */
 import type { OMRTemplate } from "@/lib/omr/schema";
 import type { CV, Mat } from "./cv";
-import { type CanonicalFrame, mmToCanonical, validateCorners } from "./geometry";
+import { type CanonicalFrame, mmToCanonical, quadArea, validateCorners } from "./geometry";
 import { fiducialBinary } from "./normalize";
 import { type CornerPoints, type Mat3, type Vec2, VisionError } from "./types";
 
 export interface FiducialCandidate { center: Vec2; area: number; aspect: number; fill: number; holeRatio: number }
 
-export const CANDIDATE_RULES = { minAspect: 0.75, maxAspect: 1.25, minFill: 0.78, maxHoleRatio: 0.12 } as const;
+export const CANDIDATE_RULES = { minAspect: 0.75, maxAspect: 1.25, minFill: 0.8, maxHoleRatio: 0.12 } as const;
 
 function isConvexQuadrilateral(cv: CV, contour: Mat): boolean {
   const approx = new cv.Mat();
   try {
-    cv.approxPolyDP(contour, approx, 0.06 * cv.arcLength(contour, true), true);
+    cv.approxPolyDP(contour, approx, 0.04 * cv.arcLength(contour, true), true);
     return approx.rows === 4 && cv.isContourConvex(approx);
   } finally {
     approx.delete();
@@ -93,12 +94,12 @@ export function selectCorners(cands: FiducialCandidate[], expectedAspect: number
   let best: { corners: CornerPoints; score: number } | null = null;
   for (const combo of combinations(pool, 4)) {
     const areas = combo.map((c) => c.area);
-    if (Math.min(...areas) < 0.3 * Math.max(...areas)) continue; // fiducials share one size (± perspective)
+    if (Math.min(...areas) < 0.4 * Math.max(...areas)) continue; // fiducials share one size (± perspective)
     try {
       const corners = validateCorners(combo.map((c) => c.center), expectedAspect, size);
-      // prefer the largest quad with the best aspect agreement
-      const score = Math.abs(corners.aspectError - 1) - 1e-9 * areas.reduce((a, b) => a + b, 0);
-      if (!best || score < best.score) best = { corners, score };
+      // the outermost valid quad wins (higher score = better)
+      const score = quadArea(corners.tl, corners.tr, corners.br, corners.bl);
+      if (!best || score > best.score) best = { corners, score };
     } catch (e) {
       lastErr = e;
     }

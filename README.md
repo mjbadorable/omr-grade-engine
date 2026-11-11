@@ -1,6 +1,6 @@
 # OMR Grade Engine
 
-A deterministic OMR answer-sheet designer. One JSON template, computed by a pure layout engine, drives the live SVG preview, the client-side vector PDF and (from Sprint 2) the OpenCV scanner.
+Design → scan → grade OMR answer sheets, offline-first. Routes: `/designer`, `/scan`, `/grade`. One JSON template, computed by a pure layout engine, drives the live SVG preview, the client-side vector PDF and (from Sprint 2) the OpenCV scanner.
 
 ```
 settings ──► layout-engine.ts ──► OMRTemplate (mm, fiducial-relative) ──┬─► primitives.ts ─┬─► SVG preview
@@ -13,7 +13,7 @@ settings ──► layout-engine.ts ──► OMRTemplate (mm, fiducial-relative
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm test           # 91 tests: layout/PDF/hash, vision (real OpenCV.js in Node), grading & psychometrics
+npm test           # 137 tests: layout, vision (real OpenCV.js in Node), grading, roster, overrides, sync, scorecards, sample kit
 npm run build
 ```
 
@@ -90,3 +90,26 @@ OpenCV.js (`@techstark/opencv-js` 4.10.0) is copied to `public/vendor/` by `npm 
 **Quality badges.** Strong: D ≥ 0.30 · Average: 0.20 ≤ D < 0.30 · Poor: D < 0.20, negative discrimination, or a distractor that attracts the upper group more than the key does (possible miskey).
 
 SheetJS is installed from `cdn.sheetjs.com` (0.20.3); the npm registry copy is outdated.
+
+## Sprint 4: Roster, review overrides, scorecards, sync
+
+| Path | Purpose |
+|---|---|
+| `src/lib/roster/schema.ts` | `Student`, `Roster`, `rollKey()` (matches "00123", "0-0123", "123") |
+| `src/lib/roster/importer.ts` | RFC-4180 CSV parser (BOM, quotes, `,` `;` tab), header alias detection (Roll No, Student ID, LRN, Full Name, First/Last Name, Guardian Contact, …), sanitisation, duplicates |
+| `src/lib/roster/reconcile.ts` | `MATCHED`, `UNREGISTERED_STUDENT`, `ABSENT`, `UNREADABLE_ROLL` + duplicate-scan detection |
+| `src/lib/review/overrides.ts` | `ManualOverridePatch` (answer / roll / set / numeric), `applyOverrides` (raw scans never mutated, newest patch per target wins, `null` reverts), audit descriptions |
+| `src/components/grading/review-modal.tsx` | Teacher review: click bubbles to correct, confirm flagged reads, fix roll/set, reason required, audit log with revert; scores update instantly |
+| `src/lib/export/scorecard-generator.ts` | One-page A4 slip per student (pdf-lib): header, rank/percentile/grade tiles, subject bars, response grid, roll-number and signature crops; batch = one PDF. Built in `src/workers/scorecard.worker.ts` |
+| `src/lib/sync/` | Outbox with monotonic `seq` (`sync-outbox.ts`), `SyncDriver` contract, loopback + HTTP drivers, key-version coalescing, two-teacher conflict detection and resolutions |
+| `src/lib/samples/` | Sample Exam Kit: 20-question PDF, template, answer key, 8-student roster, 5 photo-like scans (zip) |
+| `tests/roster`, `tests/sync`, `tests/export` | Importer/reconciler, override consistency, outbox ordering/outage/idempotency, HTTP contract, conflicts, scorecards, kit end-to-end through the scanner |
+
+**Sync contract** (implement on any backend; `id` is the idempotency key, `serverSeq` is monotonic):
+
+```
+POST {base}/push   { entries: OutboxEntry[] }            → { acked: string[], rejected: {id, reason}[] }
+GET  {base}/pull?cursor=<serverSeq>&limit=<n>            → { changes: (OutboxEntry & {serverSeq})[], cursor: string }
+```
+
+Entry kinds: `scan.created`, `override.added`, `key.version` (only the newest pending version per exam is sent), `roster.imported`, `conflict.resolved`. Scans and patches are append-only, so devices never overwrite each other; two scans of one roll number with different effective answers are held as `SYNC_CONFLICT` until someone picks the sheet to keep.
