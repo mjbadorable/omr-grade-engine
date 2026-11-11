@@ -14,6 +14,7 @@
     "prebuild": "npm run vendor"
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.9.25",
     "@techstark/opencv-js": "^4.10.0-release.1",
     "convex": "^1.49.0",
     "fflate": "^0.8.2",
@@ -21,8 +22,8 @@
     "next": "15.5.29",
     "pdf-lib": "^1.17.1",
     "qrcode-generator": "^1.4.4",
-    "react": "19.1.0",
-    "react-dom": "19.1.0",
+    "react": "^19.1.10",
+    "react-dom": "^19.1.10",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.23.8"
   },

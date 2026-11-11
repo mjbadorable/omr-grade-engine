@@ -32,14 +32,14 @@ const scan = (id: string, f: DecodedFields, extra: Partial<{ layoutHash: string;
 
 async function setup() {
   const t = convexTest(schema, modules);
-  const owner = t.withIdentity({ subject: "owner", name: "Owner", email: "owner@school.edu" });
-  const teacher = t.withIdentity({ subject: "t1", name: "Teacher One", email: "t1@school.edu" });
-  const viewer = t.withIdentity({ subject: "v1", name: "Viewer", email: "v1@school.edu" });
-  const stranger = t.withIdentity({ subject: "x", name: "Stranger", email: "x@other.edu" });
+  const owner = t.withIdentity({ subject: "owner", name: "Owner", email: "owner@usa.edu.ph", emailVerified: true });
+  const teacher = t.withIdentity({ subject: "t1", name: "Teacher One", email: "t1@usa.edu.ph", emailVerified: true });
+  const viewer = t.withIdentity({ subject: "v1", name: "Viewer", email: "v1@usa.edu.ph", emailVerified: true });
+  const stranger = t.withIdentity({ subject: "x", name: "Stranger", email: "x@usa.edu.ph", emailVerified: true });
   for (const u of [owner, teacher, viewer, stranger]) await u.mutation(api.users.store, {});
   const orgId = await owner.mutation(api.orgs.create, { name: "St. Example High" });
-  await owner.mutation(api.orgs.addMember, { orgId, email: "T1@school.edu", role: "teacher" });
-  await owner.mutation(api.orgs.addMember, { orgId, email: "v1@school.edu", role: "viewer" });
+  await owner.mutation(api.orgs.addMember, { orgId, email: "T1@usa.edu.ph", role: "teacher" });
+  await owner.mutation(api.orgs.addMember, { orgId, email: "v1@usa.edu.ph", role: "viewer" });
   const examId = await teacher.mutation(api.exams.create, { orgId, name: "Quiz 1", template: kit.template });
   return { t, owner, teacher, viewer, stranger, orgId, examId };
 }
@@ -58,7 +58,7 @@ describe("tenancy and auth", () => {
     expect(await errorCode(stranger.query(api.exams.get, { examId }))).toBe("FORBIDDEN");
     expect(await errorCode(viewer.mutation(api.grading.submitScanBatch, { examId, deviceId: "d", scans: [scan("s", fields("1", {}))] }))).toBe("FORBIDDEN");
     expect((await viewer.query(api.exams.listByOrg, { orgId }))[0].name).toBe("Quiz 1");
-    expect(await errorCode(teacher.mutation(api.orgs.addMember, { orgId, email: "x@other.edu", role: "teacher" }))).toBe("FORBIDDEN");
+    expect(await errorCode(teacher.mutation(api.orgs.addMember, { orgId, email: "x@usa.edu.ph", role: "teacher" }))).toBe("FORBIDDEN");
   });
 
   it("validates templates with the shared Zod schema and seeds a blank key v1", async () => {
@@ -133,7 +133,7 @@ describe("overrides and conflicts", () => {
     expect(await teacher.mutation(api.grading.addOverrides, { examId, patches: [patch] })).toEqual({ added: 1 });
     expect(await teacher.mutation(api.grading.addOverrides, { examId, patches: [patch] })).toEqual({ added: 0 });
     const rows = await teacher.query(api.grading.listOverrides, { examId });
-    const t1 = await t.run(async (ctx) => ctx.db.query("users").withIndex("by_email", (q) => q.eq("email", "t1@school.edu")).unique());
+    const t1 = await t.run(async (ctx) => ctx.db.query("users").withIndex("by_email", (q) => q.eq("email", "t1@usa.edu.ph")).unique());
     expect(rows).toHaveLength(1);
     expect(rows[0].teacherId).toBe(t1!._id);
   });

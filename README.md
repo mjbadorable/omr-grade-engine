@@ -138,15 +138,35 @@ Grading logic lives once in `src/lib` and runs in both places: clients rescore i
 npx convex dev                                   # links/creates a deployment, writes .env.local
 node scripts/dev-auth.mjs setup | sh             # dev-only JWT issuer on THIS deployment
 NEXT_PUBLIC_OMR_AUTH=dev npm run dev
-node scripts/dev-auth.mjs token alice "Alice" alice@school.test   # paste in the Cloud panel
+node scripts/dev-auth.mjs token alice "Alice" alice@usa.edu.ph   # paste in the Cloud panel
 ```
 
-### Auth
+### Auth: Clerk + Google SSO, `@usa.edu.ph` only
 
-`convex/auth.config.ts` reads one variable, `OMR_AUTH_PROVIDERS` (JSON list), per deployment. Production sets only its real provider (e.g. Clerk: `[{"domain":"https://<clerk-issuer>","applicationID":"convex"}]`) and swaps `ConvexProvider` for `ConvexProviderWithClerk` (or Convex Auth's provider). Never put the dev issuer on production.
+Two independent layers:
+
+1. **Clerk** (who can sign in). In the Clerk dashboard:
+   - *User & Authentication → SSO connections*: enable **Google**; disable email/password and other providers.
+   - *Configure → Restrictions*: turn on **Allowlist** and add `usa.edu.ph` (sign-ups from any other domain are refused).
+   - Recommended: use custom Google OAuth credentials from a Google Cloud project inside the `usa.edu.ph` Workspace with the consent screen set to **Internal**, so Google itself only offers institutional accounts.
+   - *Configure → JWT templates*: create the **Convex** template (name `convex`); it carries `email` and `email_verified`.
+2. **Convex** (what a token may do). Every function calls `requireAllowedIdentity`: the token's email must be **verified** and its domain must be **exactly** `usa.edu.ph` (sub-domains and look-alikes are refused). Override per deployment with `OMR_ALLOWED_EMAIL_DOMAINS` (comma-separated), e.g. to add a staging test domain.
+
+Configuration:
+
+```bash
+# Convex deployment (dev and prod separately; issuer = Clerk "Frontend API URL")
+npx convex env set OMR_AUTH_PROVIDERS '[{"domain":"https://<your-app>.clerk.accounts.dev","applicationID":"convex"}]'
+# Vercel / .env.local
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_...
+```
+
+With `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` set, `app/layout.tsx` mounts `ClerkProvider` and `ConvexClientProvider` uses `ConvexProviderWithClerk` with Clerk's `useAuth`. The cloud panel shows **Continue with Google**; a signed-in account outside the allowlist sees why it was refused and can switch accounts. There is deliberately **no Clerk middleware**: pages are static and offline-first, and all protected data goes through Convex, so pages keep working when Clerk is unreachable (development instances would otherwise redirect every first request to Clerk for a session handshake). No `CLERK_SECRET_KEY` is needed by the app.
+
+Local development without Clerk: `NEXT_PUBLIC_OMR_AUTH=dev` + `scripts/dev-auth.mjs` (tokens carry `email_verified`; mint them for `@usa.edu.ph` addresses). Never put the dev issuer in a production `OMR_AUTH_PROVIDERS`.
 
 ### Deploy on Vercel
 
 1. In Convex, create a production deploy key; in Vercel add `CONVEX_DEPLOY_KEY` (Production).
 2. Vercel build command: `npx convex deploy --cmd 'npm run build'` (sets `NEXT_PUBLIC_CONVEX_URL` for the build).
-3. `npx convex env set --prod OMR_AUTH_PROVIDERS '<json>'` and the auth provider's own Vercel variables. Leave `NEXT_PUBLIC_OMR_AUTH` unset in production.
+3. `npx convex env set --prod OMR_AUTH_PROVIDERS '<clerk json>'`; in Vercel set `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (production instance). Leave `NEXT_PUBLIC_OMR_AUTH` unset in production.

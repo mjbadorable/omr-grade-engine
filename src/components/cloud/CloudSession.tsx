@@ -25,6 +25,8 @@ export interface CloudSessionValue {
   isLoading: boolean;
   isAuthenticated: boolean;
   me: { _id: Id<"users">; name?: string; email?: string } | null | undefined;
+  /** server's verdict on the signed-in account (institutional allowlist) */
+  access: { signedIn: boolean; allowed: boolean; email?: string | null; code?: string; message?: string; domains: string[] } | undefined;
   signInDev: (token: string) => void;
   signOut: () => void;
   orgs: { _id: Id<"orgs">; name: string; role: string }[] | undefined;
@@ -59,13 +61,14 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
   useEffect(() => { setSelection(readSelection()); setPendingUploads(readPending().length); }, []);
   const persist = (s: Selection) => { setSelection(s); try { localStorage.setItem(SELECTION_KEY, JSON.stringify(s)); } catch { /* ignore */ } };
 
+  const access = useQuery(api.users.accessStatus, isAuthenticated ? {} : "skip");
   const me = useQuery(api.users.me, isAuthenticated ? {} : "skip");
   const storeUser = useMutation(api.users.store);
   const stored = useRef(false);
   useEffect(() => {
-    if (isAuthenticated && me === null && !stored.current) { stored.current = true; storeUser({}).catch(() => { stored.current = false; }); }
+    if (isAuthenticated && access?.allowed && me === null && !stored.current) { stored.current = true; storeUser({}).catch(() => { stored.current = false; }); }
     if (!isAuthenticated) stored.current = false;
-  }, [isAuthenticated, me, storeUser]);
+  }, [isAuthenticated, access?.allowed, me, storeUser]);
 
   const ready = isAuthenticated && !!me;
   const orgs = useQuery(api.orgs.listMine, ready ? {} : "skip");
@@ -134,7 +137,7 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
   }, [ready, examTemplate, uploadScan]);
 
   const value: CloudSessionValue = {
-    authMode, isLoading, isAuthenticated, me,
+    authMode, isLoading, isAuthenticated, me, access,
     signInDev: (t) => setDevToken(t), signOut: () => setDevToken(null),
     orgs, exams, selection, examTemplate,
     selectOrg: (orgId) => persist({ orgId, examId: null, layoutHash: null }),

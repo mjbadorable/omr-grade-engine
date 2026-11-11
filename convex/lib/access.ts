@@ -1,8 +1,13 @@
 /**
  * Identity and tenancy guards. Works with any Convex auth integration (Clerk, Convex Auth,
  * custom OIDC) because it only relies on `ctx.auth.getUserIdentity()`.
+ * Every authenticated call is also checked against the institutional email allowlist
+ * (verified email at an allowed domain), so a misconfigured auth provider cannot let
+ * outside accounts in.
  */
+import type { UserIdentity } from "convex/server";
 import { ConvexError } from "convex/values";
+import { checkInstitutionalEmail, parseDomainList } from "../../src/lib/cloud/allowlist";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
@@ -13,15 +18,33 @@ export function fail(code: string, message: string, extra: Record<string, unknow
   throw new ConvexError({ code, message, ...extra });
 }
 
+/** Allowed sign-in domains for this deployment (env OMR_ALLOWED_EMAIL_DOMAINS, default usa.edu.ph). */
+export const allowedDomains = () => parseDomainList(process.env.OMR_ALLOWED_EMAIL_DOMAINS);
+
+export function accessDecision(identity: UserIdentity) {
+  // OIDC providers (Clerk) arrive as `emailVerified`; custom-JWT providers keep the raw claim name.
+  const verified = identity.emailVerified ?? (identity as Record<string, unknown>)["email_verified"];
+  return checkInstitutionalEmail({ email: identity.email, emailVerified: verified === true || verified === "true" }, allowedDomains());
+}
+
+/** Signed-in identity that passed the institutional email check, else throws. */
+export async function requireAllowedIdentity(ctx: QueryCtx | MutationCtx): Promise<UserIdentity> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) fail("UNAUTHENTICATED", "Sign in to continue.");
+  const d = accessDecision(identity);
+  if (!d.ok) fail(d.code, d.message);
+  return identity;
+}
+
+/** The caller's user record, or null when signed out, not registered or not allowed. */
 export async function currentUser(ctx: QueryCtx | MutationCtx): Promise<Doc<"users"> | null> {
   const identity = await ctx.auth.getUserIdentity();
-  if (!identity) return null;
+  if (!identity || !accessDecision(identity).ok) return null;
   return ctx.db.query("users").withIndex("by_token", (q) => q.eq("tokenIdentifier", identity.tokenIdentifier)).unique();
 }
 
 export async function requireUser(ctx: QueryCtx | MutationCtx): Promise<Doc<"users">> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) fail("UNAUTHENTICATED", "Sign in to continue.");
+  await requireAllowedIdentity(ctx);
   const user = await currentUser(ctx);
   if (!user) fail("USER_NOT_REGISTERED", "Call users.store after signing in.");
   return user;

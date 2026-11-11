@@ -1,9 +1,12 @@
 "use client";
 /** Cloud status + school / exam pickers (rendered only when Convex is configured). */
+import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { OMRTemplate } from "@/lib/omr/schema";
 import { useCloudSession } from "./CloudSession";
+
+const ClerkControls = dynamic(() => import("./ClerkControls"), { ssr: false });
 
 const input = "rounded border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900";
 
@@ -25,7 +28,9 @@ export default function CloudBar({ localTemplate }: { localTemplate?: OMRTemplat
   if (!s) return null;
 
   const exam = s.exams?.find((e) => e._id === s.selection.examId);
-  const label = s.isLoading ? "Cloud…" : !s.isAuthenticated ? "Cloud: sign in" : exam ? `Cloud: ${exam.name}` : "Cloud: choose exam";
+  const denied = s.isAuthenticated && s.access && !s.access.allowed;
+  const domains = s.access?.domains ?? ["usa.edu.ph"];
+  const label = s.isLoading ? "Cloud…" : !s.isAuthenticated ? "Cloud: sign in" : denied ? "Cloud: account not allowed" : exam ? `Cloud: ${exam.name}` : "Cloud: choose exam";
   const live = s.isAuthenticated && !!exam;
   const run = (f: () => Promise<unknown>) => { setErr(null); f().catch((e) => setErr(e?.data?.message ?? e?.message ?? String(e))); };
 
@@ -40,16 +45,26 @@ export default function CloudBar({ localTemplate }: { localTemplate?: OMRTemplat
       {open && (
         <div className="absolute right-0 z-30 mt-2 w-96 space-y-3 rounded-lg border border-zinc-200 bg-white p-3 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-950">
           {!s.isAuthenticated ? (
-            s.authMode === "dev" ? (
+            s.authMode === "clerk" ? <ClerkControls mode="signin" domains={domains} /> : s.authMode === "dev" ? (
               <div className="space-y-2">
                 <p className="text-xs text-zinc-500">Development sign-in: paste a token from <code>node scripts/dev-auth.mjs token &lt;id&gt; &quot;Name&quot; email</code>.</p>
                 <textarea aria-label="Dev token" className={`${input} h-20 w-full font-mono text-[11px]`} value={token} onChange={(e) => setToken(e.target.value)} />
                 <button type="button" className="rounded-md bg-indigo-600 px-3 py-1 text-white" onClick={() => s.signInDev(token)} disabled={!token.trim()}>Sign in</button>
               </div>
             ) : <p className="text-xs text-zinc-500">Cloud sync is configured but no sign-in provider is set up yet (Clerk or Convex Auth). Everything keeps working locally.</p>
+          ) : denied ? (
+            <div className="space-y-2" data-testid="access-denied">
+              <p className="text-sm text-red-700 dark:text-red-400">{s.access!.message}</p>
+              <p className="text-xs text-zinc-500">Only verified {domains.map((d) => `@${d}`).join(" / ")} Google accounts can use the school&apos;s cloud. Your local work on this device is unaffected.</p>
+              {s.authMode === "clerk" ? <ClerkControls mode="signout" domains={domains} /> : <button type="button" className="underline" onClick={s.signOut}>sign out</button>}
+            </div>
           ) : !s.me ? <p className="text-xs text-zinc-500">Setting up your account…</p> : (
             <>
-              <p className="text-xs text-zinc-500">Signed in as <b>{s.me.name ?? s.me.email}</b>{s.authMode === "dev" && <button type="button" className="ml-2 underline" onClick={s.signOut}>sign out</button>}</p>
+              <div className="flex items-center gap-2 text-xs text-zinc-500">
+                <span>Signed in as <b>{s.me.name ?? s.me.email}</b>{s.me.email && s.me.name ? ` (${s.me.email})` : ""}</span>
+                {s.authMode === "dev" && <button type="button" className="underline" onClick={s.signOut}>sign out</button>}
+                {s.authMode === "clerk" && <span className="ml-auto"><ClerkControls mode="account" domains={domains} /></span>}
+              </div>
               <label className="block">School
                 <select aria-label="School" className={`${input} mt-1 w-full`} value={s.selection.orgId ?? ""} onChange={(e) => s.selectOrg((e.target.value || null) as Id<"orgs"> | null)}>
                   <option value="">Choose…</option>

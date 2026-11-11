@@ -36,10 +36,10 @@ if (cmd === "setup") {
   const providers = [{ type: "customJwt", applicationID: "omr-dev", issuer: ISSUER, jwks: uri, algorithm: "RS256" }];
   console.log(`npx convex env set OMR_AUTH_PROVIDERS '${JSON.stringify(providers)}'`);
 } else if (cmd === "token") {
-  const [sub = "dev-teacher", name = "Dev Teacher", email = `${sub}@example.test`] = args;
+  const [sub = "dev-teacher", name = "Dev Teacher", email = `${sub}@usa.edu.ph`] = args;
   const now = Math.floor(Date.now() / 1000);
   const header = { alg: "RS256", typ: "JWT", kid: KID };
-  const payload = { iss: ISSUER, sub, aud: "omr-dev", iat: now, exp: now + 12 * 3600, name, email };
+  const payload = { iss: ISSUER, sub, aud: "omr-dev", iat: now, exp: now + 12 * 3600, name, email, email_verified: true };
   const data = `${b64url(JSON.stringify(header))}.${b64url(JSON.stringify(payload))}`;
   console.log(`${data}.${b64url(sign("RSA-SHA256", Buffer.from(data), priv))}`);
 } else {
