@@ -1,7 +1,7 @@
 "use client";
 
 import { EmptyHero } from "@/components/brand/Brand";
-import PageActions from "@/components/shell/PageActions";
+import Workspace from "@/components/shell/Workspace";
 import { useCloudSession } from "@/components/cloud/CloudSession";
 import { useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -60,6 +60,10 @@ export default function ScannerApp() {
   const rearm = useRef<() => void>(() => {});
   const fileInput = useRef<HTMLInputElement>(null);
   const [mode, setModeState] = useState<"upload" | "camera">("upload");
+  const [autoSnap, setAutoSnap] = useState(true);
+  const [canCapture, setCanCapture] = useState(false);
+  const cameraApi = useRef<{ capture: () => void } | null>(null);
+  useEffect(() => { setAutoSnap(readAutoSnap()); }, []);
   useEffect(() => { setMuted(readMuted()); }, []);
   const toggleMute = () => { const m = !muted; setMuted(m); writeMuted(m); if (!m) { unlockAudio(); playChime(); } };
   // ---- field calibration
@@ -149,55 +153,51 @@ export default function ScannerApp() {
   const current = jobs.find((j) => j.id === selected) ?? null;
   const ready = engine.state === "ready" && !!template;
 
+  const statusPill = (
+    <p className={`rounded-full px-3 py-1.5 text-center text-sm font-medium ${engine.state === "ready" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" : engine.state === "error" ? "bg-red-100 text-red-800" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`} data-testid="scanner-status">
+      {engine.state === "ready" ? "Scanner Ready" : engine.state === "error" ? `Scanner unavailable: ${engine.message}` : "Starting scanner…"}
+    </p>
+  );
+  const seg = (on: boolean) => `rounded-md px-3 py-1.5 text-sm ${on ? "bg-white font-semibold shadow-sm ring-1 ring-gold/50 dark:bg-zinc-800" : "text-zinc-600 hover:bg-white/70 dark:text-zinc-400"}`;
+  const toggleRow = "flex w-full items-center justify-between rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800";
+  const sw = (on: boolean) => <span className={`inline-block h-4 w-8 rounded-full p-0.5 transition ${on ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"}`}><span className={`block size-3 rounded-full bg-white transition ${on ? "translate-x-4" : ""}`} /></span>;
+
   return (
-    <div className="flex min-h-dvh flex-col">
-      <PageActions>
-        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${engine.state === "ready" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : engine.state === "error" ? "bg-red-100 text-red-700" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`}>
-          {engine.state === "ready" ? "Scanner Ready" : engine.state === "error" ? `Scanner unavailable: ${engine.message}` : "Starting scanner…"}
-        </span>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={toggleMute} aria-pressed={muted} data-testid="mute-toggle" title={muted ? "Sounds off: click to unmute" : "Success chime on: click to mute"}
-            className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-200 px-2 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800">
-            <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M11 5 6 9H3v6h3l5 4z" />{muted ? <path d="m16 9 5 6m0-6-5 6" /> : <path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" />}</svg>
-            {muted ? "Muted" : "Sound"}
-          </button>
-        </div>
-      </PageActions>
-
-      <div className="grid flex-1 gap-4 p-4 lg:grid-cols-[380px_1fr]">
-        <section className="space-y-4">
-          <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950" data-testid="scan-exam">
-            <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-zinc-500">Active exam</h2>
-            {template ? (
-              <p className="text-sm">
-                <span className="font-medium">{template.title || "Untitled exam"}</span>
-                <span className="block text-xs text-zinc-500">{template.questionCount} questions · {template.pages.length} page{template.pages.length === 1 ? "" : "s"}</span>
-              </p>
-            ) : (
-              <p className="text-sm text-zinc-500">No exam yet. Design one in <b>1 · Design</b> and it appears here.</p>
-            )}
-          </div>
-
-          <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-            <div className="mb-3 flex gap-1" role="tablist">
-              {(["upload", "camera"] as const).map((m) => (
-                <button key={m} role="tab" aria-selected={mode === m} type="button" onClick={() => { setModeState(m); if (m === "camera") unlockAudio(); }}
-                  className={`rounded-md px-3 py-1 text-sm ${mode === m ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}>
-                  {m === "upload" ? "Upload photos" : "Camera"}
-                </button>
-              ))}
-            </div>
+    <>
+      <Workspace
+        controlsLabel="Scan settings"
+        defaultOpen
+        footer={
+          <>
+            {statusPill}
             {mode === "upload" ? (
-              <label className={`${btn} w-full cursor-pointer bg-indigo-600 py-2 text-white hover:bg-indigo-700 ${ready ? "" : "pointer-events-none opacity-40"}`}>
-                Choose answer-sheet images…
+              <label className={`${btn} w-full cursor-pointer justify-center bg-indigo-600 py-2.5 text-white hover:bg-indigo-700 ${ready ? "" : "pointer-events-none opacity-40"}`} data-testid="scan-primary">
+                Choose Photos to Scan…
                 <input ref={fileInput} type="file" accept="image/*" multiple className="sr-only" disabled={!ready} onChange={(e) => { onFiles(e.target.files); e.target.value = ""; }} />
               </label>
             ) : (
-              <CameraPanel client={client.current} enabled={ready} rearmRef={rearm} onCapture={(bmp) => runScan(`camera ${new Date().toLocaleTimeString()}`, bmp)} />
+              <button type="button" disabled={!ready || !canCapture} data-testid="scan-primary" className={`${btn} w-full justify-center bg-indigo-600 py-2.5 text-white hover:bg-indigo-700`} onClick={() => cameraApi.current?.capture()}>Scan Now</button>
             )}
-          </div>
-
-          <details className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950" data-testid="advanced-scanner">
+          </>
+        }
+        body={
+          <div className="space-y-4">
+            <div>
+              <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">Capture</h2>
+              <div className="grid grid-cols-2 gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-900" role="tablist">
+                {(["upload", "camera"] as const).map((m) => (
+                  <button key={m} role="tab" aria-selected={mode === m} type="button" className={seg(mode === m)} onClick={() => { setModeState(m); if (m === "camera") unlockAudio(); }}>{m === "upload" ? "Upload Photos" : "Camera"}</button>
+                ))}
+              </div>
+              {!template && <p className="mt-2 text-xs text-zinc-500">No exam yet. Design one in <b>1 · Design</b> and it appears here.</p>}
+              {template && <p className="mt-2 text-xs text-zinc-500">{template.questionCount} questions · {template.pages.length} page{template.pages.length === 1 ? "" : "s"}</p>}
+            </div>
+            <div className="space-y-2">
+              <button type="button" role="switch" aria-checked={autoSnap} data-testid="autosnap-toggle" className={toggleRow} title="Capture and grade automatically when all 4 corners hold steady"
+                onClick={() => { const a = !autoSnap; setAutoSnap(a); writeAutoSnap(a); unlockAudio(); if (a) rearm.current(); }}><span>Auto-Snap <span className="text-xs text-zinc-500">(camera)</span></span>{sw(autoSnap)}</button>
+              <button type="button" role="switch" aria-checked={!muted} onClick={toggleMute} data-testid="mute-toggle" className={toggleRow} title={muted ? "Sounds off" : "Success chime on"}><span>Sound</span>{sw(!muted)}</button>
+            </div>
+          <details className="rounded-lg border border-zinc-200 dark:border-zinc-800" data-testid="advanced-scanner">
             <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Advanced Scanner Settings</summary>
             <div className="space-y-3 border-t border-zinc-100 p-3 dark:border-zinc-800">
               <label className={`${btn} cursor-pointer border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}>
@@ -212,7 +212,11 @@ export default function ScannerApp() {
 
             </div>
           </details>
-
+          </div>
+        }
+      >
+        <div className="space-y-4 p-4">
+          {mode === "camera" && <div className="mx-auto max-w-2xl"><CameraPanel client={client.current} enabled={ready} rearmRef={rearm} autoSnap={autoSnap} apiRef={cameraApi} onAligned={setCanCapture} onCapture={(bmp) => runScan(`camera ${new Date().toLocaleTimeString()}`, bmp)} /></div>}
           {jobs.length > 0 && (
             <ul className="divide-y divide-zinc-100 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950">
               {jobs.map((j) => (
@@ -225,7 +229,6 @@ export default function ScannerApp() {
               ))}
             </ul>
           )}
-        </section>
 
         <section className="min-w-0" id="scan-detail">
           {current ? <JobDetail job={current} template={template} diagnostics={diagnostics} tuning={tuning} onRescan={(j) => j.source && runScan(`${j.name} (rescan)`, j.source, { calibration: true })} /> : (
@@ -234,7 +237,8 @@ export default function ScannerApp() {
             </div>
           )}
         </section>
-      </div>
+        </div>
+      </Workspace>
       {session && <CloudKey onKey={(k) => { cloudKey.current = k; }} />}
       {banner !== null && (() => {
         const j = jobs.find((x) => x.id === banner);
@@ -244,7 +248,7 @@ export default function ScannerApp() {
             onClose={() => setBanner(null)} />
         ) : null;
       })()}
-    </div>
+    </>
   );
 }
 
@@ -320,7 +324,7 @@ function JobDetail({ job, template, diagnostics, tuning, onRescan }: { job: Job;
  * Live camera: frame-dropping alignment preview, pre-capture guardrails (too dark / glare / hold
  * steady) from a 160-px luminance sample and corner stability across frames, optional torch.
  */
-function CameraPanel({ client, enabled, onCapture, rearmRef }: { client: ScannerClient | null; enabled: boolean; onCapture: (b: ImageBitmap) => void; rearmRef: React.MutableRefObject<() => void> }) {
+function CameraPanel({ client, enabled, onCapture, rearmRef, autoSnap, apiRef, onAligned }: { client: ScannerClient | null; enabled: boolean; onCapture: (b: ImageBitmap) => void; rearmRef: React.MutableRefObject<() => void>; autoSnap: boolean; apiRef: React.MutableRefObject<{ capture: () => void } | null>; onAligned: (a: boolean) => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const overlay = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<ScanTelemetry | null>(null);
@@ -329,12 +333,11 @@ function CameraPanel({ client, enabled, onCapture, rearmRef }: { client: Scanner
   const [stability, setStability] = useState<StabilityState | null>(null);
   const [torch, setTorch] = useState<{ supported: boolean; on: boolean }>({ supported: false, on: false });
   const track = useRef<MediaStreamTrack | null>(null);
-  const [autoSnap, setAutoSnap] = useState(true);
-  const autoRef = useRef(true);
+  const autoRef = useRef(autoSnap);
+  autoRef.current = autoSnap;
   const gate = useRef(new AutoSnapGate());
   const captureRef = useRef(onCapture);
   captureRef.current = onCapture;
-  useEffect(() => { const a = readAutoSnap(); setAutoSnap(a); autoRef.current = a; }, []);
   useEffect(() => { rearmRef.current = () => gate.current.rearm(); }, [rearmRef]);
 
   useEffect(() => {
@@ -412,6 +415,9 @@ function CameraPanel({ client, enabled, onCapture, rearmRef }: { client: Scanner
   }
 
   const aligned = status?.status === "aligned";
+  useEffect(() => { onAligned(aligned); }, [aligned, onAligned]);
+  // the sidebar's "Scan Now" button captures through this
+  apiRef.current = { capture: async () => { unlockAudio(); const v = video.current; if (v && aligned) { gate.current.update({ aligned: true, stable: true, now: performance.now() }); captureRef.current(await createImageBitmap(v)); } } };
   const g = guidance(quality, stability);
   return (
     <div className="space-y-2">
@@ -434,16 +440,6 @@ function CameraPanel({ client, enabled, onCapture, rearmRef }: { client: Scanner
         </span>
         {quality && <span className="font-mono text-[11px] text-zinc-400" title="mean luminance / clipped pixels">L{Math.round(quality.meanLuma)} · {Math.round(quality.saturatedFraction * 100)}%</span>}
         {torch.supported && <button type="button" aria-pressed={torch.on} className={`${btn} border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700`} onClick={toggleTorch}>{torch.on ? "Torch off" : "Torch"}</button>}
-        <button type="button" role="switch" aria-checked={autoSnap} data-testid="autosnap-toggle" onClick={() => { const a = !autoSnap; setAutoSnap(a); autoRef.current = a; writeAutoSnap(a); unlockAudio(); if (a) gate.current.rearm(); }}
-          title="Capture and grade automatically when all 4 corners hold steady"
-          className={`${btn} ml-auto border px-2 py-1 text-xs ${autoSnap ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" : "border-zinc-300 dark:border-zinc-700"}`}>
-          <span className={`inline-block h-3 w-6 rounded-full p-0.5 transition ${autoSnap ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"}`}><span className={`block size-2 rounded-full bg-white transition ${autoSnap ? "translate-x-3" : ""}`} /></span>
-          Auto-Snap
-        </button>
-        <button type="button" disabled={!aligned} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`}
-          onClick={async () => { unlockAudio(); const v = video.current; if (v) { gate.current.update({ aligned: true, stable: true, now: performance.now() }); captureRef.current(await createImageBitmap(v)); } }}>
-          Capture & scan
-        </button>
       </div>
     </div>
   );

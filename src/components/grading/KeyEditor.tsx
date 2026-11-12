@@ -65,84 +65,96 @@ const RuleRow = memo(function RuleRow({ rule, stat, onChange }: { rule: Question
   );
 });
 
-export default function KeyEditor({ answerKey, onChange, stats, keySources }: {
+/** Sidebar: teacher-friendly scoring rules + collapsible grading scale and key tools. */
+export function ScoringRules({ answerKey, onChange, keySources, onExport, onImport, onReset }: {
   answerKey: AnswerKey;
   onChange: (k: AnswerKey) => void;
-  stats: Map<number, ItemStatistics>;
   keySources: { id: string; label: string; apply: () => void }[];
+  onExport: () => void;
+  onImport: (file: File | undefined) => void;
+  onReset: () => void;
 }) {
-  const [allPts, setAllPts] = useState("4");
-  const [allNeg, setAllNeg] = useState("1");
-  const [bands, setBands] = useState(() => answerKey.gradeBands.map((b) => `${b.label}≥${b.minPercent}`).join(", "));
   const rules = [...answerKey.questions.values()];
+  const uniform = (pick: (r: QuestionRule) => number) => (rules.length && rules.every((r) => pick(r) === pick(rules[0])) ? String(pick(rules[0])) : "");
+  const [points, setPoints] = useState(() => uniform((r) => r.points));
+  const [deduct, setDeduct] = useState(() => rules.some((r) => r.negative > 0));
+  const positive = (v: string) => (Number(v) > 0 ? v : "1");
+  const [penalty, setPenalty] = useState(() => positive(uniform((r) => r.negative)));
+  const [bands, setBands] = useState(() => answerKey.gradeBands.map((b) => `${b.label}≥${b.minPercent}`).join(", "));
+  // follow external key changes (import, reset, another teacher)
+  const sig = `${uniform((r) => r.points)}|${uniform((r) => r.negative)}`;
+  const [seen, setSeen] = useState(sig);
+  if (sig !== seen) { setSeen(sig); setPoints(uniform((r) => r.points)); setDeduct(rules.some((r) => r.negative > 0)); const pn = uniform((r) => r.negative); if (Number(pn) > 0) setPenalty(pn); }
   const setLabels = Object.keys(answerKey.sets);
-  const [view, setView] = useState<"grid" | "table">("grid");
+  const label = "mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400";
+  const applyPoints = () => { const v = Math.max(0, num(points, NaN)); if (!Number.isNaN(v) && points.trim() !== "") onChange(updateAllRules(answerKey, { points: v })); };
+  const applyPenalty = () => { const v = Math.max(0, num(penalty, 0)); onChange(updateAllRules(answerKey, { negative: v })); };
+  const full = "rounded-md border border-zinc-300 px-2.5 py-1.5 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900";
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-zinc-200 bg-white p-3 text-sm dark:border-zinc-800 dark:bg-zinc-950">
-        <label className="flex items-center gap-1">All questions: +<input className={`${input} w-14`} value={allPts} onChange={(e) => setAllPts(e.target.value)} aria-label="Points for all" />
-          −<input className={`${input} w-14`} value={allNeg} onChange={(e) => setAllNeg(e.target.value)} aria-label="Negative for all" /></label>
-        <button type="button" className="rounded-md border border-zinc-300 px-2.5 py-1 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-          onClick={() => onChange(updateAllRules(answerKey, { points: Math.max(0, num(allPts, 1)), negative: Math.max(0, num(allNeg, 0)) }))}>Apply</button>
-        <label className="flex items-center gap-1">Uncertain marks:
-          <select className={input} value={answerKey.conflictPolicy} onChange={(e) => onChange(updateKey(answerKey, { conflictPolicy: e.target.value as AnswerKey["conflictPolicy"] }))}>
-            <option value="zero">hold for review (0 pts)</option>
-            <option value="score-filled">score filled bubbles</option>
+    <div className="space-y-4" data-testid="scoring-rules">
+      <section className="space-y-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Scoring rules</h2>
+        <label className="block"><span className={label}>Points per correct item</span>
+          <input aria-label="Points per correct item" className={`${input} w-full`} inputMode="decimal" placeholder="mixed" value={points} onChange={(e) => setPoints(e.target.value)} onBlur={applyPoints} onKeyDown={(e) => { if (e.key === "Enter") { applyPoints(); e.currentTarget.blur(); } }} />
+        </label>
+        <div>
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <input type="checkbox" className="accent-indigo-600" checked={deduct} onChange={(e) => { setDeduct(e.target.checked); onChange(updateAllRules(answerKey, { negative: e.target.checked ? Math.max(0, num(positive(penalty), 1)) : 0 })); }} />
+            Deduct points for wrong answers
+          </label>
+          {deduct && (
+            <label className="mt-2 block"><span className={label}>Points deducted per wrong answer</span>
+              <input aria-label="Points deducted per wrong answer" className={`${input} w-full`} inputMode="decimal" value={penalty} onChange={(e) => setPenalty(e.target.value)} onBlur={applyPenalty} onKeyDown={(e) => { if (e.key === "Enter") { applyPenalty(); e.currentTarget.blur(); } }} />
+            </label>
+          )}
+        </div>
+        <label className="block"><span className={label}>Uncertain / double marks</span>
+          <select aria-label="Uncertain or double marks" className={`${input} w-full`} value={answerKey.conflictPolicy} onChange={(e) => onChange(updateKey(answerKey, { conflictPolicy: e.target.value as AnswerKey["conflictPolicy"] }))}>
+            <option value="zero">Hold for review (0 pts)</option>
+            <option value="score-filled">Score the filled bubbles</option>
           </select>
         </label>
-        <label className="flex min-w-[260px] flex-1 items-center gap-1">Grades:
-          <input className={`${input} flex-1`} value={bands} onChange={(e) => setBands(e.target.value)} aria-label="Grade bands"
-            onBlur={() => {
-              const parsed = bands.split(",").map((x) => /^\s*([^≥>]+?)\s*(?:≥|>=)\s*(\d+(?:\.\d+)?)\s*$/.exec(x)).filter((m): m is RegExpExecArray => !!m).map((m) => ({ label: m[1], minPercent: Number(m[2]) }));
-              if (parsed.length) onChange(updateKey(answerKey, { gradeBands: parsed }));
-            }} />
-        </label>
-        {keySources.length > 0 && (
-          <select className={input} value="" aria-label="Take key from a scanned sheet" onChange={(e) => keySources.find((s) => s.id === e.target.value)?.apply()}>
-            <option value="" disabled>Use a scanned sheet as key…</option>
-            {keySources.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-          </select>
-        )}
-      </div>
+      </section>
 
-      {setLabels.length > 1 && <SetMappings answerKey={answerKey} onChange={onChange} />}
-
-      <div className="flex items-center gap-2 text-sm" role="tablist" aria-label="Key editor view">
-        {([["grid", "Bubble grid"], ["table", "Detailed table"]] as const).map(([v, label]) => (
-          <button key={v} role="tab" type="button" aria-selected={view === v} onClick={() => setView(v)}
-            className={`rounded-md px-3 py-1 ${view === v ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}>{label}</button>
-        ))}
-        <span className="ml-auto text-xs text-zinc-500">{keyedCount(answerKey)} of {rules.filter((r) => r.type === "choice").length} choice questions keyed</span>
-      </div>
-
-      {view === "grid" && <BubbleGrid answerKey={answerKey} onChange={onChange} />}
-
-      <div className={`overflow-x-auto rounded-lg border border-zinc-200 bg-white px-3 dark:border-zinc-800 dark:bg-zinc-950 ${view === "grid" ? "hidden" : ""}`}>
-        <table className="w-full min-w-[760px] text-left text-sm">
-          <thead className="text-xs uppercase tracking-wide text-zinc-500">
-            <tr><th className="py-2 pr-2 text-right">Q</th><th>Correct answer</th><th>Mode</th><th>+</th><th>−</th><th className="text-center">Bonus</th><th className="text-center">Drop</th><th>Subject</th><th>Live stats</th></tr>
-          </thead>
-          <tbody>
-            {rules.map((r) => (
-              <RuleRow key={r.questionNumber} rule={r} stat={stats.get(r.questionNumber)} onChange={(patch) => onChange(updateRule(answerKey, r.questionNumber, patch))} />
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <details className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800" data-testid="key-tools">
+        <summary className="cursor-pointer text-sm font-medium">Grading Scale &amp; Key Tools</summary>
+        <div className="mt-3 space-y-3">
+          <label className="block"><span className={label}>Grade cutoffs</span>
+            <input className={`${input} w-full`} value={bands} onChange={(e) => setBands(e.target.value)} aria-label="Grade bands" placeholder="A≥90, B≥80, C≥70, D≥60, F≥0"
+              onBlur={() => {
+                const parsed = bands.split(",").map((x) => /^\s*([^≥>]+?)\s*(?:≥|>=)\s*(\d+(?:\.\d+)?)\s*$/.exec(x)).filter((m): m is RegExpExecArray => !!m).map((m) => ({ label: m[1], minPercent: Number(m[2]) }));
+                if (parsed.length) onChange(updateKey(answerKey, { gradeBands: parsed }));
+              }} />
+          </label>
+          {setLabels.length > 1 && <SetMappings answerKey={answerKey} onChange={onChange} />}
+          {keySources.length > 0 && (
+            <select className={`${input} w-full`} value="" aria-label="Take key from a scanned sheet" onChange={(e) => keySources.find((s) => s.id === e.target.value)?.apply()}>
+              <option value="" disabled>Use a scanned sheet as key…</option>
+              {keySources.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          )}
+          <div className="grid grid-cols-3 gap-2 text-center text-sm">
+            <label className={`${full} cursor-pointer`}>Import Key<input type="file" accept=".json,application/json" className="sr-only" onChange={(e) => { onImport(e.target.files?.[0]); e.target.value = ""; }} /></label>
+            <button type="button" className={full} onClick={onExport}>Export Key</button>
+            <button type="button" className={`${full} text-red-700 dark:text-red-300`} onClick={onReset}>Reset Key</button>
+          </div>
+        </div>
+      </details>
     </div>
   );
 }
 
-/** ZipGrade-style "Edit Key": click bubbles per question, per exam set. Several bubbles = alternate credit. */
-function BubbleGrid({ answerKey, onChange }: { answerKey: AnswerKey; onChange: (k: AnswerKey) => void }) {
+/** Canvas header (exam sets left, view toggle right) followed by the key editor. */
+export default function KeyCanvas({ answerKey, onChange, stats }: { answerKey: AnswerKey; onChange: (k: AnswerKey) => void; stats: Map<number, ItemStatistics> }) {
+  const [view, setView] = useState<"grid" | "table">("grid");
   const sets = Object.keys(answerKey.sets);
   const [active, setActive] = useState<string | null>(answerKey.defaultSet ?? sets[0] ?? null);
   const set = active && sets.includes(active) ? active : sets[0] ?? null;
-  const rows = gridRows(answerKey, set);
+  const rules = [...answerKey.questions.values()];
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950" data-testid="bubble-grid">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+    <div className="space-y-3 p-4" data-testid="key-canvas">
+      <div className="flex flex-wrap items-center gap-2" data-testid="key-canvas-header">
         {sets.length > 1 && (
           <div className="flex gap-1" role="tablist" aria-label="Exam set">
             {sets.map((l) => (
@@ -151,8 +163,37 @@ function BubbleGrid({ answerKey, onChange }: { answerKey: AnswerKey; onChange: (
             ))}
           </div>
         )}
-        <p className="text-xs text-zinc-500">Click a bubble to set the answer. Mark <b>two or more</b> for alternate credit (any one earns full points). <span title="Bonus: every student gets full credit">★</span> gives everyone full credit. Every change rescores all papers instantly.</p>
+        <div className="ml-auto flex gap-1" role="tablist" aria-label="Key editor view">
+          {([["grid", "Bubble Grid"], ["table", "Detailed Table"]] as const).map(([v, label]) => (
+            <button key={v} role="tab" type="button" aria-selected={view === v} onClick={() => setView(v)}
+              className={`rounded-md px-3 py-1 text-sm ${view === v ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}>{label}</button>
+          ))}
+        </div>
       </div>
+      {view === "grid" ? <BubbleGrid answerKey={answerKey} onChange={onChange} set={set} /> : (
+        <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white px-3 dark:border-zinc-800 dark:bg-zinc-950">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="text-xs uppercase tracking-wide text-zinc-500">
+              <tr><th className="py-2 pr-2 text-right">Q</th><th>Correct answer</th><th>Mode</th><th>+</th><th>−</th><th className="text-center">Bonus</th><th className="text-center">Drop</th><th>Subject</th><th>Live stats</th></tr>
+            </thead>
+            <tbody>
+              {rules.map((r) => (
+                <RuleRow key={r.questionNumber} rule={r} stat={stats.get(r.questionNumber)} onChange={(patch) => onChange(updateRule(answerKey, r.questionNumber, patch))} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** ZipGrade-style "Edit Key": click bubbles per question, per exam set. Several bubbles = alternate credit. */
+function BubbleGrid({ answerKey, onChange, set }: { answerKey: AnswerKey; onChange: (k: AnswerKey) => void; set: string | null }) {
+  const rows = gridRows(answerKey, set);
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950" data-testid="bubble-grid">
+      <p className="mb-3 text-xs text-zinc-500">Click a bubble to set the answer. Mark <b>two or more</b> for alternate credit (any one earns full points). <span title="Bonus: every student gets full credit">★</span> gives everyone full credit. Every change rescores all papers instantly. <span className="text-zinc-400">· {keyedCount(answerKey)} keyed</span></p>
       <div className="gap-x-8 sm:columns-2 2xl:columns-4">
         {rows.map((row) => {
           const rule = answerKey.questions.get(row.master)!;

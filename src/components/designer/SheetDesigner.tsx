@@ -11,7 +11,7 @@ import type { LayoutSettings } from "@/lib/omr/schema";
 import DebugDrawer, { IssueList } from "./DebugDrawer";
 import QuickPresets from "./QuickPresets";
 import SettingsPanel from "./SettingsPanel";
-import PageActions from "@/components/shell/PageActions";
+import Workspace from "@/components/shell/Workspace";
 import SyllabusDropzone from "./SyllabusDropzone";
 import SheetPreview, { type PreviewOverlays } from "./SheetPreview";
 
@@ -93,29 +93,31 @@ export default function SheetDesigner() {
     }
   }
 
-  return (
-    <div className="flex flex-col" style={{ height: "calc(100dvh - var(--app-header-h, 56px))" }}>
-      <PageActions>
-        {result && summary && (
-          <span data-testid="sheet-summary" data-tone={summary.tone} role="status"
-            className={`rounded-full px-3 py-1 text-sm font-medium ${summary.tone === "ok" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" : summary.tone === "warn" ? "bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200" : "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"}`}>
-            {summary.text}
-            {summary.tone === "error" && <button type="button" className="ml-2 underline" onClick={() => setDrawer("issues")}>Details</button>}
-          </span>
-        )}
-        <div className="flex items-center gap-2">
-          <button type="button" disabled={kitBusy} className={`${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}
-            title="A ready-made 20-question exam with answer key, class list and practice scans" onClick={downloadKit}>
-            {kitBusy ? "Preparing…" : "Load Sample Exam"}
-          </button>
-          <button type="button" disabled={!canExport || busy} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`} onClick={exportPdf}>
-            {busy ? "Preparing PDF…" : "Download Answer Sheet (PDF)"}
-          </button>
-        </div>
-      </PageActions>
+  const footer = (
+    <>
+      {result && summary && (
+        <p data-testid="sheet-summary" data-tone={summary.tone} role="status"
+          className={`rounded-full px-3 py-1.5 text-center text-sm font-medium ${summary.tone === "ok" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" : summary.tone === "warn" ? "bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200" : "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"}`}>
+          {summary.text}
+          {summary.tone === "error" && <button type="button" className="ml-2 underline" onClick={() => setDrawer("issues")}>Details</button>}
+        </p>
+      )}
+      <button type="button" disabled={!canExport || busy} data-testid="download-pdf" className={`${btn} w-full justify-center bg-indigo-600 py-2.5 text-white hover:bg-indigo-700`} onClick={exportPdf}>
+        {busy ? "Preparing PDF…" : "Download Answer Sheet (PDF)"}
+      </button>
+      <button type="button" disabled={kitBusy} className="w-full rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800"
+        title="A ready-made 20-question exam with answer key, class list and practice scans" onClick={downloadKit}>
+        {kitBusy ? "Preparing…" : "Load Sample Exam"}
+      </button>
+    </>
+  );
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <aside className="shrink-0 overflow-y-auto border-b border-zinc-200 bg-white p-4 lg:w-[360px] lg:border-r lg:border-b-0 dark:border-zinc-800 dark:bg-zinc-950">
+  return (
+    <>
+      <Workspace
+        controlsLabel="Sheet settings"
+        footer={footer}
+        body={
           <div className="space-y-6">
             <QuickPresets settings={settings} onApply={(s) => { setSettings(s); setPageIndex(0); }} />
             <SyllabusDropzone settings={settings} onConfigure={(next) => { setSettings(next); setPageIndex(0); }} />
@@ -134,21 +136,22 @@ export default function SheetDesigner() {
               </div>
             </details>
           </div>
-        </aside>
-
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {pages > 1 && <div className="flex flex-wrap items-center gap-3 border-b border-zinc-200 px-4 py-2 text-sm dark:border-zinc-800">
-            <div className="flex gap-1" role="tablist" aria-label="Pages">
-              {Array.from({ length: pages }, (_, i) => (
-                <button key={i} role="tab" aria-selected={i === page} type="button" onClick={() => setPageIndex(i)}
-                  className={`rounded-md px-2.5 py-1 ${i === page ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-200/60 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}>
-                  Page {i + 1}
-                </button>
-              ))}
+        }
+      >
+        <div className="flex min-h-0 flex-col" data-testid="design-canvas">
+          {pages > 1 && (
+            <div className="flex flex-wrap items-center gap-3 border-b border-zinc-200 px-4 py-2 text-sm dark:border-zinc-800">
+              <div className="flex gap-1" role="tablist" aria-label="Pages">
+                {Array.from({ length: pages }, (_, i) => (
+                  <button key={i} role="tab" aria-selected={i === page} type="button" onClick={() => setPageIndex(i)}
+                    className={`rounded-md px-2.5 py-1 ${i === page ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-200/60 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}>
+                    Page {i + 1}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>}
-
-          <div className={`min-h-0 flex-1 overflow-auto p-4 sm:p-8 ${drawer ? "pb-[48vh]" : ""}`}>
+          )}
+          <div className={`p-4 sm:p-8 ${drawer ? "pb-[48vh]" : ""}`}>
             {"error" in outcome && (
               <div className="mx-auto mb-4 max-w-[820px] rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
                 Invalid settings: {outcome.error}
@@ -165,10 +168,10 @@ export default function SheetDesigner() {
               </div>
             )}
           </div>
-        </main>
-      </div>
+        </div>
+      </Workspace>
 
       {result && <DebugDrawer key={drawer ?? "closed"} open={!!drawer} initialTab={drawer ?? "json"} onClose={() => setDrawer(null)} result={result} />}
-    </div>
+    </>
   );
 }
