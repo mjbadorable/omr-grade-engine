@@ -8,6 +8,7 @@ import { DEFAULT_SETTINGS, PRESETS } from "@/lib/omr/presets";
 import { writeStoredTemplate } from "@/lib/storage/template-store";
 import type { LayoutSettings } from "@/lib/omr/schema";
 import DebugDrawer, { IssueList } from "./DebugDrawer";
+import QuickPresets from "./QuickPresets";
 import SettingsPanel from "./SettingsPanel";
 import HeroStrip from "./HeroStrip";
 import SyllabusDropzone from "./SyllabusDropzone";
@@ -128,7 +129,10 @@ export default function SheetDesigner() {
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <aside className="shrink-0 overflow-y-auto border-b border-zinc-200 bg-white p-4 lg:w-[360px] lg:border-r lg:border-b-0 dark:border-zinc-800 dark:bg-zinc-950">
-          <SettingsPanel settings={settings} onChange={setSettings} />
+          <div className="space-y-6">
+            <QuickPresets settings={settings} onApply={(s) => { setSettings(s); setPageIndex(0); }} />
+            <SettingsPanel settings={settings} onChange={setSettings} />
+          </div>
         </aside>
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">

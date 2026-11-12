@@ -45,4 +45,39 @@ export const PRESETS: Preset[] = [
   },
 ];
 
+/**
+ * ZipGrade-style one-click forms: MCQ A-D, 5-digit Student ID, Set A/B/C/D selector, name line.
+ * Columns are chosen so each column holds a round number of rows on A4.
+ */
+export interface QuickPreset { id: string; label: string; short: string; questions: number; settings: Omit<LayoutSettings, "templateId"> }
+const zg = (questions: number, columns: number, title: string, bubble: number): Omit<LayoutSettings, "templateId"> => ({
+  version: 1, title, subtitle: "", paper: "A4", columns, bubbleDiameterMm: bubble, rollDigits: 5, rollStartDigit: 0, examSets: 4, nameField: true,
+  sections: [{ id: "s1", name: "", type: "mcq", questionCount: questions, optionCount: 4, optionStyle: "letters" }],
+});
+export const QUICK_PRESETS: readonly QuickPreset[] = [
+  { id: "zg-20", label: "20-Item Quiz (Compact)", short: "20-Item Quiz", questions: 20, settings: zg(20, 2, "20-Item Quiz", 4.6) },
+  { id: "zg-50", label: "50-Item Exam (Standard)", short: "50-Item Exam", questions: 50, settings: zg(50, 2, "50-Item Exam", 4.4) },
+  { id: "zg-100", label: "100-Item Exam (Full Page)", short: "100-Item Exam", questions: 100, settings: zg(100, 4, "100-Item Exam", 4.2) },
+];
+PRESETS.push(...QUICK_PRESETS.map((q) => ({ id: q.id, name: `ZipGrade-style · ${q.label}`, settings: q.settings })));
+
+const STOCK_TITLES = new Set(["", "Unit Test Answer Sheet", "Quiz", "Final Examination", "Joint Mock Test", ...QUICK_PRESETS.map((q) => q.settings.title)]);
+const STOCK_SUBTITLES = new Set(["", "Mathematics - Grade 10", "Physics - Chemistry"]);
+
+/** Apply a quick preset: new layout, but keep the sheet's identity and any title/subtitle the teacher (or a syllabus drop) set. */
+export function applyQuickPreset(current: LayoutSettings, preset: QuickPreset): LayoutSettings {
+  return {
+    ...preset.settings,
+    templateId: current.templateId,
+    title: STOCK_TITLES.has(current.title) ? preset.settings.title : current.title,
+    subtitle: STOCK_SUBTITLES.has(current.subtitle) ? preset.settings.subtitle : current.subtitle,
+  };
+}
+
+/** Which quick preset (if any) the settings currently match: same length, columns, ID digits and sets. */
+export function activeQuickPreset(s: LayoutSettings): string | null {
+  const q = QUICK_PRESETS.find((p) => p.questions === s.sections.reduce((n, x) => n + x.questionCount, 0) && p.settings.columns === s.columns && s.sections.length === 1 && s.sections[0].type === "mcq" && s.rollDigits === 5 && s.examSets === 4);
+  return q?.id ?? null;
+}
+
 export const DEFAULT_SETTINGS: LayoutSettings = { templateId: "tpl-draft", ...PRESETS[0].settings };

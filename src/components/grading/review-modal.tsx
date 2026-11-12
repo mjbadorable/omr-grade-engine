@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReviewCanvas from "@/components/scanner/ReviewCanvas";
+import { paperBubbles, type BubbleVisual } from "@/lib/grading/paper-review";
 import type { AnswerKey, ScoredSheet } from "@/lib/grading/types";
 import { describePatch, effectivePatches, makePatch, type ManualOverridePatch } from "@/lib/review/overrides";
 import type { Student } from "@/lib/roster/schema";
@@ -39,6 +40,7 @@ export default function ReviewModal({ sheet, scan, rawFields, patches, answerKey
   const [set, setSet] = useState(sheet.examSet ?? "");
   const [reason, setReason] = useState("Verified against the paper sheet");
   const closeRef = useRef<HTMLButtonElement>(null);
+  const [pane, setPane] = useState<"paper" | "edit">("paper");
 
   useEffect(() => {
     let alive = true;
@@ -121,7 +123,14 @@ export default function ReviewModal({ sheet, scan, rawFields, patches, answerKey
             <AuditLog patches={patches} active={active} onRevert={(p) => onPatches([base(p.target, p.questionNumber, p.originalState, null)])} />
           </div>
           <div className="max-h-[72vh] overflow-auto">
-            <table className="w-full text-left text-sm">
+            <div className="mb-2 flex gap-1" role="tablist" aria-label="Paper view">
+              {([["paper", "Paper view"], ["edit", "Correct marks"]] as const).map(([v, label]) => (
+                <button key={v} role="tab" type="button" aria-selected={pane === v} onClick={() => setPane(v)}
+                  className={`rounded-md px-3 py-1 text-sm ${pane === v ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}>{label}</button>
+              ))}
+            </div>
+            {pane === "paper" && <PaperBreakdown sheet={sheet} answerKey={answerKey} />}
+            <table className={`w-full text-left text-sm ${pane === "paper" ? "hidden" : ""}`}>
               <thead className="sticky top-0 z-10 bg-white text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-950">
                 <tr><th className="py-1 pr-3">Q</th><th className="pr-3">Marks (click to correct)</th><th className="pr-3">Key</th><th>Status</th><th className="pl-3 text-right">Pts</th><th className="pl-3 text-right" title="Lowest bubble confidence from the scanner">Conf.</th></tr>
               </thead>
@@ -194,6 +203,48 @@ function AuditLog({ patches, active, onRevert }: { patches: ManualOverridePatch[
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+const VISUAL_CLASS: Record<BubbleVisual, string> = {
+  "correct-marked": "border-emerald-600 bg-emerald-600 text-white",
+  "wrong-marked": "border-red-600 bg-red-600 text-white",
+  "missed-correct": "border-amber-400 text-amber-700 ring-2 ring-amber-400 dark:text-amber-300",
+  plain: "border-zinc-300 text-zinc-400 dark:border-zinc-700",
+};
+const VISUAL_LABEL: Record<BubbleVisual, string> = { "correct-marked": "marked, correct", "wrong-marked": "marked, wrong", "missed-correct": "correct answer (missed)", plain: "not marked" };
+
+/** ZipGrade-style question-by-question view: green = right, red = wrong, gold ring = the answer they missed. */
+function PaperBreakdown({ sheet, answerKey }: { sheet: ScoredSheet; answerKey: AnswerKey }) {
+  const setLabel = sheet.examSet ?? answerKey.defaultSet;
+  const maps = setLabel ? answerKey.sets[setLabel] : undefined;
+  const ordered = [...sheet.items].sort((a, b) => a.printedNumber - b.printedNumber);
+  return (
+    <div data-testid="paper-view">
+      <ul className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-600 dark:text-zinc-400">
+        <li className="flex items-center gap-1"><span className="inline-block size-3 rounded-full bg-emerald-600" />Correct</li>
+        <li className="flex items-center gap-1"><span className="inline-block size-3 rounded-full bg-red-600" />Wrong</li>
+        <li className="flex items-center gap-1"><span className="inline-block size-3 rounded-full ring-2 ring-amber-400" />Correct answer they missed or skipped</li>
+      </ul>
+      <div className="gap-x-6 sm:columns-2">
+        {ordered.map((i) => {
+          const rule = answerKey.questions.get(i.questionNumber);
+          if (!rule || rule.type !== "choice") {
+            return <div key={i.questionNumber} className="mb-1.5 flex break-inside-avoid items-center gap-2 text-xs"><span className="w-7 text-right font-mono text-zinc-500">{i.printedNumber}</span><span className={`font-mono ${STATUS_STYLE[i.status]}`}>{i.answerText || "–"}</span><span className="text-zinc-400">key {i.correctLabels.join(" ") || "–"}</span><span className="ml-auto tabular-nums">{i.scoreEarned}/{i.maxScore}</span></div>;
+          }
+          const bubbles = paperBubbles(i, rule, maps?.optionPermutations?.[i.questionNumber]);
+          return (
+            <div key={i.questionNumber} className="mb-1.5 flex break-inside-avoid items-center gap-2" data-testid={`paper-row-${i.printedNumber}`}>
+              <span className="w-7 shrink-0 text-right font-mono text-xs text-zinc-500">{i.printedNumber}</span>
+              <div className="flex gap-1" role="group" aria-label={`Question ${i.printedNumber}`}>
+                {bubbles.map((b) => <span key={b.printedIndex} data-visual={b.visual} title={`${b.label}: ${VISUAL_LABEL[b.visual]}`} className={`grid size-6 place-items-center rounded-full border text-[11px] font-semibold ${VISUAL_CLASS[b.visual]}`}>{b.label}</span>)}
+              </div>
+              <span className={`ml-auto text-xs tabular-nums ${STATUS_STYLE[i.status]}`}>{i.status === "FLAGGED_CONFLICT" ? "review" : i.scoreEarned}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

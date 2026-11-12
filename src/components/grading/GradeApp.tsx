@@ -213,6 +213,7 @@ export default function GradeApp() {
 
   const recon = useMemo(() => reconcile(roster, counted.map((s) => ({ sheetId: s.sheetId, rollNumber: s.fields.rollNumber }))), [roster, counted]);
   const names = useMemo(() => new Map([...recon.studentBySheet].map(([id, st]) => [id, st.name])), [recon]);
+  const outcomeByQ = useMemo(() => new Map([...(key?.questions.values() ?? [])].filter((r) => r.outcomeCode).map((r) => [r.questionNumber, r.outcomeCode!] as const)), [key]);
   const stats = useMemo(() => new Map(graded?.report.items.map((i) => [i.questionNumber, i]) ?? []), [graded]);
   const sourceById = useMemo(() => new Map(effective.map((s) => [s.sheetId, s])), [effective]);
 
@@ -440,7 +441,7 @@ export default function GradeApp() {
             Server snapshot ({cloud.analytics.status}{cloud.analytics.keyVersion ? `, key v${cloud.analytics.keyVersion}` : ""}): {cloud.analytics.gradedCount} sheets · KR-20 {cloud.analytics.kr20?.toFixed(2) ?? "–"} · {cloud.analytics.openConflicts} open conflicts
           </p>
         )}
-        {tab === "analysis" && (graded && graded.sheets.length >= 2 ? <ItemAnalysisView report={graded.report} /> : <Empty />)}
+        {tab === "analysis" && (graded && graded.sheets.length >= 2 ? <ItemAnalysisView report={graded.report} outcomes={outcomeByQ} /> : <Empty />)}
         {tab === "outcomes" && (!key || !hasOutcomes(key) ? (
           <div className="mx-auto max-w-xl rounded-lg border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700" data-testid="outcomes-empty">
             <p className="font-medium text-zinc-700 dark:text-zinc-200">No syllabus outcomes on this exam yet</p>

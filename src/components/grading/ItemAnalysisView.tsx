@@ -2,6 +2,7 @@
 
 import { Fragment, useState } from "react";
 import type { PsychometricReport } from "@/lib/grading/types";
+import { distributionRows, HIGH_DISTRACTOR, type DistLevel } from "@/lib/grading/item-distribution";
 import QualityBadge from "./QualityBadge";
 
 const fmt = (v: number | null, d = 2) => (v === null ? "—" : v.toFixed(d));
@@ -23,7 +24,8 @@ const FLAG_TEXT: Record<string, string> = {
   TOO_HARD: "too hard",
 };
 
-export default function ItemAnalysisView({ report }: { report: PsychometricReport }) {
+export default function ItemAnalysisView({ report, outcomes }: { report: PsychometricReport; /** question → course outcome code (from the syllabus TOS) */ outcomes?: ReadonlyMap<number, string> }) {
+  const [view, setView] = useState<"dist" | "table">("dist");
   const [open, setOpen] = useState<number | null>(null);
   const [filter, setFilter] = useState<"all" | "POOR">("all");
   const items = filter === "all" ? report.items : report.items.filter((i) => i.quality === "POOR");
@@ -47,10 +49,20 @@ export default function ItemAnalysisView({ report }: { report: PsychometricRepor
             {f === "all" ? `All (${report.items.length})` : `Needs attention (${report.items.filter((i) => i.quality === "POOR").length})`}
           </button>
         ))}
+        <span className="ml-2 border-l border-zinc-200 pl-3 dark:border-zinc-700" />
+        {([["dist", "Distribution"], ["table", "Table"]] as const).map(([v, label]) => (
+          <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)} className={`rounded-md px-2.5 py-1 ${view === v ? "bg-indigo-600 text-white" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}>{label}</button>
+        ))}
         <span className="ml-auto text-xs text-zinc-500">Upper/lower groups: top and bottom 27 % ({report.groupSize} students each)</span>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+      {view === "dist" && (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="distribution-grid">
+          {items.map((i) => <DistributionCard key={i.questionNumber} item={i} co={outcomes?.get(i.questionNumber)} />)}
+        </div>
+      )}
+
+      <div className={`overflow-x-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 ${view === "dist" ? "hidden" : ""}`}>
         <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
             <tr>
@@ -110,6 +122,35 @@ function DistractorChart({ item }: { item: PsychometricReport["items"][number] }
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+const BAR: Record<DistLevel, string> = { key: "bg-emerald-500", ok: "bg-zinc-400 dark:bg-zinc-500", warn: "bg-amber-500", high: "bg-red-500", blank: "bg-zinc-300 dark:bg-zinc-700" };
+
+/** Who chose what: counts and shares for each option and Blank; key in green, popular wrong options in amber / red. */
+function DistributionCard({ item, co }: { item: PsychometricReport["items"][number]; co?: string }) {
+  const rows = distributionRows(item);
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950" data-testid={`dist-${item.questionNumber}`}>
+      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-mono text-sm font-semibold">Q{item.questionNumber}</span>
+        {co && <span className="rounded bg-indigo-50 px-1.5 py-0.5 font-semibold text-indigo-700 ring-1 ring-inset ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300" title="Course outcome measured by this question">{co}</span>}
+        <QualityBadge quality={item.quality} miskey={item.flags.includes("POSSIBLE_MISKEY")} />
+        <span className="ml-auto tabular-nums text-zinc-500" title="Discrimination index D = p(upper 27 %) − p(lower 27 %)">D <b className={item.d < 0.2 ? "text-red-600 dark:text-red-400" : "text-zinc-800 dark:text-zinc-200"}>{item.d.toFixed(2)}</b> · p {item.p.toFixed(2)}</span>
+      </div>
+      <ul className="space-y-1">
+        {rows.map((r) => (
+          <li key={r.label} className="grid grid-cols-[2.6rem_1fr_5.5rem] items-center gap-2 text-xs" data-level={r.level}>
+            <span className={`font-semibold ${r.isKey ? "text-emerald-700 dark:text-emerald-400" : r.level === "warn" ? "text-amber-700 dark:text-amber-400" : r.level === "high" ? "text-red-700 dark:text-red-400" : "text-zinc-600 dark:text-zinc-400"}`}>{r.label}{r.isKey ? " ✓" : ""}</span>
+            <div className="h-3 overflow-hidden rounded-sm bg-zinc-100 dark:bg-zinc-900" role="img" aria-label={`${r.label}: ${r.count} students, ${Math.round(r.pct * 100)} percent`}>
+              <div className={`h-full ${BAR[r.level]}`} style={{ width: `${Math.max(r.count ? 2 : 0, r.pct * 100)}%` }} />
+            </div>
+            <span className="text-right tabular-nums text-zinc-600 dark:text-zinc-400">{r.count} · {Math.round(r.pct * 100)}%</span>
+          </li>
+        ))}
+      </ul>
+      {rows.some((r) => r.level === "warn" || r.level === "high") && <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">A wrong option above {Math.round(HIGH_DISTRACTOR * 100)}% may signal a miskey or a misleading item.</p>}
     </div>
   );
 }

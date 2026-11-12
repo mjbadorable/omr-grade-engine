@@ -3,6 +3,7 @@
 import { memo, useState } from "react";
 import { formatSetMappingText, parseSetMappingText, updateAllRules, updateKey, updateRule } from "@/lib/grading/answer-key";
 import type { AnswerKey, ItemStatistics, MatchMode, QuestionRule } from "@/lib/grading/types";
+import { gridRows, keyedCount, toggleRowBubble } from "@/lib/grading/key-grid";
 import { QualityDot } from "./QualityBadge";
 
 const input = "rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-sm tabular-nums outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900";
@@ -75,6 +76,7 @@ export default function KeyEditor({ answerKey, onChange, stats, keySources }: {
   const [bands, setBands] = useState(() => answerKey.gradeBands.map((b) => `${b.label}≥${b.minPercent}`).join(", "));
   const rules = [...answerKey.questions.values()];
   const setLabels = Object.keys(answerKey.sets);
+  const [view, setView] = useState<"grid" | "table">("grid");
 
   return (
     <div className="space-y-4">
@@ -106,7 +108,17 @@ export default function KeyEditor({ answerKey, onChange, stats, keySources }: {
 
       {setLabels.length > 1 && <SetMappings answerKey={answerKey} onChange={onChange} />}
 
-      <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white px-3 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="flex items-center gap-2 text-sm" role="tablist" aria-label="Key editor view">
+        {([["grid", "Bubble grid"], ["table", "Detailed table"]] as const).map(([v, label]) => (
+          <button key={v} role="tab" type="button" aria-selected={view === v} onClick={() => setView(v)}
+            className={`rounded-md px-3 py-1 ${view === v ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}>{label}</button>
+        ))}
+        <span className="ml-auto text-xs text-zinc-500">{keyedCount(answerKey)} of {rules.filter((r) => r.type === "choice").length} choice questions keyed</span>
+      </div>
+
+      {view === "grid" && <BubbleGrid answerKey={answerKey} onChange={onChange} />}
+
+      <div className={`overflow-x-auto rounded-lg border border-zinc-200 bg-white px-3 dark:border-zinc-800 dark:bg-zinc-950 ${view === "grid" ? "hidden" : ""}`}>
         <table className="w-full min-w-[760px] text-left text-sm">
           <thead className="text-xs uppercase tracking-wide text-zinc-500">
             <tr><th className="py-2 pr-2 text-right">Q</th><th>Correct answer</th><th>Mode</th><th>+</th><th>−</th><th className="text-center">Bonus</th><th className="text-center">Drop</th><th>Subject</th><th>Live stats</th></tr>
@@ -117,6 +129,57 @@ export default function KeyEditor({ answerKey, onChange, stats, keySources }: {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+/** ZipGrade-style "Edit Key": click bubbles per question, per exam set. Several bubbles = alternate credit. */
+function BubbleGrid({ answerKey, onChange }: { answerKey: AnswerKey; onChange: (k: AnswerKey) => void }) {
+  const sets = Object.keys(answerKey.sets);
+  const [active, setActive] = useState<string | null>(answerKey.defaultSet ?? sets[0] ?? null);
+  const set = active && sets.includes(active) ? active : sets[0] ?? null;
+  const rows = gridRows(answerKey, set);
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950" data-testid="bubble-grid">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {sets.length > 1 && (
+          <div className="flex gap-1" role="tablist" aria-label="Exam set">
+            {sets.map((l) => (
+              <button key={l} role="tab" type="button" aria-selected={l === set} onClick={() => setActive(l)}
+                className={`rounded-md border px-3 py-1 text-sm font-semibold ${l === set ? "border-indigo-600 bg-indigo-600 text-white" : "border-zinc-300 text-zinc-600 hover:border-indigo-400 dark:border-zinc-700 dark:text-zinc-300"}`}>Set {l}</button>
+            ))}
+          </div>
+        )}
+        <p className="text-xs text-zinc-500">Click a bubble to set the answer. Mark <b>two or more</b> for alternate credit (any one earns full points). <span title="Bonus: every student gets full credit">★</span> gives everyone full credit. Every change rescores all papers instantly.</p>
+      </div>
+      <div className="gap-x-8 sm:columns-2 2xl:columns-4">
+        {rows.map((row) => {
+          const rule = answerKey.questions.get(row.master)!;
+          const dim = rule.dropped ? "opacity-40" : "";
+          return (
+            <div key={row.master} className={`mb-1.5 flex break-inside-avoid items-center gap-2 ${dim}`} data-testid={`key-row-${row.printed}`}>
+              <span className="w-7 shrink-0 text-right font-mono text-xs text-zinc-500">{row.printed}</span>
+              {row.rule ? (
+                <div className="flex gap-1" role="group" aria-label={`Correct answer for question ${row.printed}`}>
+                  {row.rule.optionLabels.map((_, p) => {
+                    const m = row.perm[p];
+                    const on = row.rule!.correct.includes(m);
+                    return (
+                      <button key={p} type="button" aria-pressed={on} aria-label={`${row.rule!.optionLabels[p]}`} onClick={() => { const patch = toggleRowBubble(row, p); if (patch) onChange(updateRule(answerKey, row.master, patch)); }}
+                        className={`size-7 rounded-full border text-xs font-semibold transition ${on ? "border-emerald-600 bg-emerald-600 text-white shadow-sm" : "border-zinc-300 text-zinc-500 hover:border-emerald-500 hover:text-emerald-700 dark:border-zinc-600"}`}>
+                        {row.rule!.optionLabels[p]}
+                      </button>
+                    );
+                  })}
+                  <button type="button" aria-pressed={rule.bonus} aria-label={`Bonus: full credit to all for question ${row.printed}`} title="Bonus: full credit to everyone" onClick={() => onChange(updateRule(answerKey, row.master, { bonus: !rule.bonus }))}
+                    className={`ml-1 size-7 rounded-md border text-sm transition ${rule.bonus ? "border-gold bg-gold-tint text-gold-hover dark:text-gold" : "border-transparent text-zinc-300 hover:border-zinc-300 hover:text-zinc-500 dark:text-zinc-600"}`}>★</button>
+                  {row.rule.correct.length > 1 && <span className="self-center rounded bg-sky-100 px-1 text-[10px] font-medium text-sky-800 dark:bg-sky-500/15 dark:text-sky-300" title="Alternate credit: any marked option earns full points">any</span>}
+                </div>
+              ) : <span className="text-xs text-zinc-400">{rule.type} question: edit in the detailed table</span>}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

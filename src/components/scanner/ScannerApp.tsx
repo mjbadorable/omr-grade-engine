@@ -4,9 +4,17 @@ import AppNav from "@/components/AppNav";
 import Brand, { EmptyHero } from "@/components/brand/Brand";
 import CloudBar from "@/components/cloud/CloudBar";
 import { useCloudSession } from "@/components/cloud/CloudSession";
+import { useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api } from "../../../convex/_generated/api";
+import { bodyToAnswerKey } from "@/lib/cloud/convert";
+import type { AnswerKey } from "@/lib/grading/types";
+import { playChime, readAutoSnap, readMuted, unlockAudio, writeAutoSnap, writeMuted } from "@/lib/audio/chime";
+import { type InstantResult, instantResult } from "@/lib/scan-result";
+import { AutoSnapGate } from "@/lib/vision/auto-snap";
 import { OMRTemplateSchema, type OMRTemplate } from "@/lib/omr/schema";
-import { readStoredTemplate, writeStoredTemplate } from "@/lib/storage/template-store";
+import { readStoredKey, readStoredTemplate, writeStoredTemplate } from "@/lib/storage/template-store";
+
 import type { ScanOutput } from "@/lib/vision/scan-sheet";
 import { ScannerClient } from "@/lib/vision/scanner-client";
 import type { CornerPoints, ScanTelemetry, VisionErrorPayload } from "@/lib/vision/types";
@@ -25,6 +33,8 @@ interface Job {
   result?: ScanOutput;
   preview?: ImageBitmap | null;
   error?: VisionErrorPayload;
+  /** ZipGrade-style instant score (null key → no score) */
+  instant?: InstantResult;
   /** original file, kept so a calibration rescan can reuse it with other settings */
   source?: Blob;
   /** calibration run: not saved to the gradebook and not uploaded */
@@ -41,10 +51,18 @@ export default function ScannerApp() {
   const [engine, setEngine] = useState<{ state: "loading" | "ready" | "error"; ms?: number; message?: string }>({ state: "loading" });
   const [template, setTemplate] = useState<OMRTemplate | null>(null);
   const [templateError, setTemplateError] = useState<string | null>(null);
-  const [mode, setMode] = useState<"upload" | "camera">("upload");
   const [jobs, setJobs] = useState<Job[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const jobSeq = useRef(0);
+  // ---- instant result banner, sound, auto-snap
+  const [muted, setMuted] = useState(false);
+  const [banner, setBanner] = useState<number | null>(null);
+  const cloudKey = useRef<AnswerKey | null>(null);
+  const rearm = useRef<() => void>(() => {});
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [mode, setModeState] = useState<"upload" | "camera">("upload");
+  useEffect(() => { setMuted(readMuted()); }, []);
+  const toggleMute = () => { const m = !muted; setMuted(m); writeMuted(m); if (!m) { unlockAudio(); playChime(); } };
   // ---- field calibration
   const [tuning, setTuning] = useState<ScanTuning>(DEFAULT_TUNING);
   const [diagnostics, setDiagnostics] = useState(false);
@@ -86,7 +104,11 @@ export default function ScannerApp() {
     try {
       patchJob(id, { status: "scanning" });
       const { result, preview } = await client.current!.scan(source, { options: { tuning: used }, onTelemetry: (t) => patchJob(id, { stage: t.stage }) });
-      patchJob(id, { status: "done", result, preview });
+      const key = readStoredKey(result.layoutHash) ?? (session?.selection.layoutHash === result.layoutHash ? cloudKey.current : null);
+      const instant = instantResult(result.fields, key);
+      patchJob(id, { status: "done", result, preview, instant });
+      setBanner(id);
+      playChime("success");
       if (calibration) return;     // benchmarking only: nothing reaches the gradebook or the cloud
       // hand the result to the gradebook (IndexedDB) and queue it for sync (outbox)
       const { deviceId, teacherId } = identity();
@@ -103,6 +125,7 @@ export default function ScannerApp() {
       }
     } catch (e) {
       patchJob(id, { status: "error", error: e as VisionErrorPayload });
+      playChime("warn");
     }
   }, [patchJob, session]);
 
@@ -132,7 +155,14 @@ export default function ScannerApp() {
       <header className="flex flex-wrap items-center gap-3 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
         <Brand page="Scanner" />
         <AppNav />
-        <div className="ml-auto"><CloudBar localTemplate={cloudTemplate ? null : template} /></div>
+        <div className="ml-auto flex items-center gap-2">
+          <button type="button" onClick={toggleMute} aria-pressed={muted} data-testid="mute-toggle" title={muted ? "Sounds off: click to unmute" : "Success chime on: click to mute"}
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-200 px-2 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800">
+            <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M11 5 6 9H3v6h3l5 4z" />{muted ? <path d="m16 9 5 6m0-6-5 6" /> : <path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" />}</svg>
+            {muted ? "Muted" : "Sound"}
+          </button>
+          <CloudBar localTemplate={cloudTemplate ? null : template} />
+        </div>
         <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${engine.state === "ready" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : engine.state === "error" ? "bg-red-100 text-red-700" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`}>
           {engine.state === "ready" ? `Vision engine ready · ${engine.ms} ms` : engine.state === "error" ? `Engine failed: ${engine.message}` : "Loading vision engine (OpenCV, cached after first use)…"}
         </span>
@@ -166,7 +196,7 @@ export default function ScannerApp() {
           <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
             <div className="mb-3 flex gap-1" role="tablist">
               {(["upload", "camera"] as const).map((m) => (
-                <button key={m} role="tab" aria-selected={mode === m} type="button" onClick={() => setMode(m)}
+                <button key={m} role="tab" aria-selected={mode === m} type="button" onClick={() => { setModeState(m); if (m === "camera") unlockAudio(); }}
                   className={`rounded-md px-3 py-1 text-sm ${mode === m ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}>
                   {m === "upload" ? "Upload photos" : "Camera"}
                 </button>
@@ -175,10 +205,10 @@ export default function ScannerApp() {
             {mode === "upload" ? (
               <label className={`${btn} w-full cursor-pointer bg-indigo-600 py-2 text-white hover:bg-indigo-700 ${ready ? "" : "pointer-events-none opacity-40"}`}>
                 Choose answer-sheet images…
-                <input type="file" accept="image/*" multiple className="sr-only" disabled={!ready} onChange={(e) => { onFiles(e.target.files); e.target.value = ""; }} />
+                <input ref={fileInput} type="file" accept="image/*" multiple className="sr-only" disabled={!ready} onChange={(e) => { onFiles(e.target.files); e.target.value = ""; }} />
               </label>
             ) : (
-              <CameraPanel client={client.current} enabled={ready} onCapture={(bmp) => runScan(`camera ${new Date().toLocaleTimeString()}`, bmp)} />
+              <CameraPanel client={client.current} enabled={ready} rearmRef={rearm} onCapture={(bmp) => runScan(`camera ${new Date().toLocaleTimeString()}`, bmp)} />
             )}
           </div>
 
@@ -196,7 +226,7 @@ export default function ScannerApp() {
           )}
         </section>
 
-        <section className="min-w-0">
+        <section className="min-w-0" id="scan-detail">
           {current ? <JobDetail job={current} template={template} diagnostics={diagnostics} tuning={tuning} onRescan={(j) => j.source && runScan(`${j.name} (rescan)`, j.source, { calibration: true })} /> : (
             <div className="grid h-full min-h-60 place-items-center rounded-lg border border-dashed border-zinc-300 p-6 dark:border-zinc-700">
               <EmptyHero title="Scan an answer sheet">Choose photos or open the camera: the scan result and overlay appear here.</EmptyHero>
@@ -204,6 +234,15 @@ export default function ScannerApp() {
           )}
         </section>
       </div>
+      {session && <CloudKey onKey={(k) => { cloudKey.current = k; }} />}
+      {banner !== null && (() => {
+        const j = jobs.find((x) => x.id === banner);
+        return j?.instant ? (
+          <InstantBanner job={j} onNext={() => { setBanner(null); if (mode === "camera") rearm.current(); else fileInput.current?.click(); }}
+            onInspect={() => { setBanner(null); setSelected(j.id); requestAnimationFrame(() => document.getElementById("scan-detail")?.scrollIntoView({ behavior: "smooth", block: "start" })); }}
+            onClose={() => setBanner(null)} />
+        ) : null;
+      })()}
     </div>
   );
 }
@@ -281,7 +320,7 @@ function JobDetail({ job, template, diagnostics, tuning, onRescan }: { job: Job;
  * Live camera: frame-dropping alignment preview, pre-capture guardrails (too dark / glare / hold
  * steady) from a 160-px luminance sample and corner stability across frames, optional torch.
  */
-function CameraPanel({ client, enabled, onCapture }: { client: ScannerClient | null; enabled: boolean; onCapture: (b: ImageBitmap) => void }) {
+function CameraPanel({ client, enabled, onCapture, rearmRef }: { client: ScannerClient | null; enabled: boolean; onCapture: (b: ImageBitmap) => void; rearmRef: React.MutableRefObject<() => void> }) {
   const video = useRef<HTMLVideoElement>(null);
   const overlay = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<ScanTelemetry | null>(null);
@@ -290,6 +329,13 @@ function CameraPanel({ client, enabled, onCapture }: { client: ScannerClient | n
   const [stability, setStability] = useState<StabilityState | null>(null);
   const [torch, setTorch] = useState<{ supported: boolean; on: boolean }>({ supported: false, on: false });
   const track = useRef<MediaStreamTrack | null>(null);
+  const [autoSnap, setAutoSnap] = useState(true);
+  const autoRef = useRef(true);
+  const gate = useRef(new AutoSnapGate());
+  const captureRef = useRef(onCapture);
+  captureRef.current = onCapture;
+  useEffect(() => { const a = readAutoSnap(); setAutoSnap(a); autoRef.current = a; }, []);
+  useEffect(() => { rearmRef.current = () => gate.current.rearm(); }, [rearmRef]);
 
   useEffect(() => {
     if (!enabled || !client) return;
@@ -337,7 +383,12 @@ function CameraPanel({ client, enabled, onCapture }: { client: ScannerClient | n
             if (p) p.then(({ corners, telemetry, frameSize }) => {
               if (!alive) return;
               lastCorners = corners; lastFrameSize = frameSize;
-              setStatus(telemetry); setStability(tracker.push(corners)); drawQuad(overlay.current, corners, frameSize);
+              const st = tracker.push(corners);
+              setStatus(telemetry); setStability(st); drawQuad(overlay.current, corners, frameSize);
+              // Auto-Snap: corners aligned and steady → capture + grade, once per sheet
+              const snap = gate.current.update({ aligned: !!corners, stable: st.stable, now: performance.now(), busy: client.isBusy });
+              if (snap && autoRef.current && video.current) createImageBitmap(video.current).then((b) => captureRef.current(b)).catch(() => {});
+              else if (snap) gate.current.rearm();
             }).catch(() => {});
           }
         }
@@ -367,6 +418,7 @@ function CameraPanel({ client, enabled, onCapture }: { client: ScannerClient | n
       <div className="relative overflow-hidden rounded-md bg-black">
         <video ref={video} playsInline muted className="block h-auto w-full" />
         <canvas ref={overlay} className="pointer-events-none absolute inset-0 h-full w-full" />
+        <CornerBrackets locked={aligned} steady={!!stability?.stable} />
         {g.messages.length > 0 && (
           <div role="status" aria-live="polite" data-testid="camera-guardrails" className="pointer-events-none absolute inset-x-0 top-0 flex flex-col items-center gap-1 p-2">
             {g.messages.map((m, i) => (
@@ -378,12 +430,18 @@ function CameraPanel({ client, enabled, onCapture }: { client: ScannerClient | n
       {camError && <p className="text-xs text-red-600">Camera unavailable: {camError}</p>}
       <div className="flex items-center gap-2">
         <span className={`rounded-full px-2 py-0.5 text-xs ${aligned && g.ok ? "bg-emerald-100 text-emerald-700" : aligned ? "bg-amber-100 text-amber-800" : "bg-zinc-100 text-zinc-600"}`}>
-          {aligned ? (g.ok ? `Ready · ${status?.frameTimeMs} ms` : `Aligned · ${status?.frameTimeMs} ms`) : "Searching for the 4 corner squares…"}
+          {aligned ? (g.ok ? (autoSnap ? "Hold still: auto-snapping…" : `Ready · ${status?.frameTimeMs} ms`) : `Aligned · ${status?.frameTimeMs} ms`) : "Searching for the 4 corner squares…"}
         </span>
         {quality && <span className="font-mono text-[11px] text-zinc-400" title="mean luminance / clipped pixels">L{Math.round(quality.meanLuma)} · {Math.round(quality.saturatedFraction * 100)}%</span>}
         {torch.supported && <button type="button" aria-pressed={torch.on} className={`${btn} border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700`} onClick={toggleTorch}>{torch.on ? "Torch off" : "Torch"}</button>}
-        <button type="button" disabled={!aligned} className={`${btn} ml-auto bg-indigo-600 text-white hover:bg-indigo-700`}
-          onClick={async () => { const v = video.current; if (v) onCapture(await createImageBitmap(v)); }}>
+        <button type="button" role="switch" aria-checked={autoSnap} data-testid="autosnap-toggle" onClick={() => { const a = !autoSnap; setAutoSnap(a); autoRef.current = a; writeAutoSnap(a); unlockAudio(); if (a) gate.current.rearm(); }}
+          title="Capture and grade automatically when all 4 corners hold steady"
+          className={`${btn} ml-auto border px-2 py-1 text-xs ${autoSnap ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" : "border-zinc-300 dark:border-zinc-700"}`}>
+          <span className={`inline-block h-3 w-6 rounded-full p-0.5 transition ${autoSnap ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"}`}><span className={`block size-2 rounded-full bg-white transition ${autoSnap ? "translate-x-3" : ""}`} /></span>
+          Auto-Snap
+        </button>
+        <button type="button" disabled={!aligned} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`}
+          onClick={async () => { unlockAudio(); const v = video.current; if (v) { gate.current.update({ aligned: true, stable: true, now: performance.now() }); captureRef.current(await createImageBitmap(v)); } }}>
           Capture & scan
         </button>
       </div>
@@ -501,4 +559,65 @@ function DiagnosticsPanel({ job, result, template, tuning, onRescan }: { job: Jo
       {advice.length > 0 && <ul className="mt-2 list-disc space-y-0.5 pl-5 text-xs text-sky-900 dark:text-sky-200">{advice.map((a) => <li key={a}>{a}</li>)}</ul>}
     </div>
   );
+}
+
+// ------------------------------------------------------------------ camera crosshairs
+/** 4 target brackets at the viewfinder corners: white while searching, pulsing green once the 4 marks are found. */
+function CornerBrackets({ locked, steady }: { locked: boolean; steady: boolean }) {
+  const base = "pointer-events-none absolute size-10 border-4 transition-colors sm:size-12";
+  const tone = locked ? `border-emerald-400 ${steady ? "" : "animate-pulse"} drop-shadow-[0_0_6px_rgba(52,211,153,.8)]` : "border-white/70";
+  return (
+    <div aria-hidden data-testid="corner-brackets" data-locked={locked} data-steady={steady}>
+      <span className={`${base} ${tone} left-[5%] top-[7%] rounded-tl-xl border-b-0 border-r-0`} />
+      <span className={`${base} ${tone} right-[5%] top-[7%] rounded-tr-xl border-b-0 border-l-0`} />
+      <span className={`${base} ${tone} bottom-[7%] left-[5%] rounded-bl-xl border-r-0 border-t-0`} />
+      <span className={`${base} ${tone} bottom-[7%] right-[5%] rounded-br-xl border-l-0 border-t-0`} />
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ instant result
+function InstantBanner({ job, onNext, onInspect, onClose }: { job: Job; onNext: () => void; onInspect: () => void; onClose: () => void }) {
+  const r = job.instant!;
+  const good = r.keyed && r.percentage >= 75;
+  return (
+    <div role="status" aria-live="polite" data-testid="instant-result" className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-3xl p-2 sm:p-4">
+      <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950">
+        <div className="h-1 bg-gradient-to-r from-indigo-600 via-gold to-indigo-600" />
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 p-4">
+          <dl className="grid grid-cols-2 gap-x-5 text-sm">
+            <dt className="text-xs text-zinc-500">Student ID</dt><dt className="text-xs text-zinc-500">Set</dt>
+            <dd className="font-mono text-lg font-semibold" data-testid="instant-roll">{r.rollNumber ?? "unreadable"}</dd>
+            <dd className="font-mono text-lg font-semibold">{r.examSet ?? "–"}</dd>
+          </dl>
+          <div>
+            <p className="text-xs text-zinc-500">Score</p>
+            <p className={`text-2xl font-bold tabular-nums ${!r.keyed ? "text-zinc-500" : good ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-900 dark:text-zinc-100"}`} data-testid="instant-score">{r.scoreText}{r.grade && r.keyed ? <span className="ml-2 text-sm font-semibold text-zinc-500">{r.grade}</span> : null}</p>
+          </div>
+          <div>
+            <p className="text-xs text-zinc-500">Flagged</p>
+            <p className={`text-lg font-semibold tabular-nums ${r.flagged ? "text-amber-600 dark:text-amber-400" : "text-zinc-700 dark:text-zinc-300"}`} data-testid="instant-flagged">{r.flagged}</p>
+            <p className="text-[11px] text-zinc-500">{r.doubleMarked} double-marked · {r.blank} blank</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Dismiss result" className="ml-auto self-start rounded px-2 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800">×</button>
+        </div>
+        {!r.keyed && <p className="border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500 dark:border-zinc-800">Set the answer key on the Grade page and every scanned sheet is scored instantly.</p>}
+        <div className="flex gap-2 border-t border-zinc-100 p-3 dark:border-zinc-800">
+          <button type="button" autoFocus onClick={onNext} className={`${btn} flex-1 bg-indigo-600 py-2 text-white hover:bg-indigo-700`}>Scan Next Sheet</button>
+          <button type="button" onClick={onInspect} className={`${btn} flex-1 border border-zinc-300 py-2 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}>Inspect Paper</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Live answer key of the selected cloud exam (rendered only when Convex is configured). */
+function CloudKey({ onKey }: { onKey: (k: AnswerKey | null) => void }) {
+  const session = useCloudSession();
+  const examId = session?.isAuthenticated && session.me ? session.selection.examId : null;
+  const doc = useQuery(api.grading.getAnswerKey, examId ? { examId } : "skip");
+  useEffect(() => {
+    onKey(doc && examId ? bodyToAnswerKey(doc, { examId, version: doc.version, layoutHash: session?.selection.layoutHash ?? undefined }) : null);
+  }, [doc, examId, session?.selection.layoutHash, onKey]);
+  return null;
 }
