@@ -1,26 +1,100 @@
 @import "tailwindcss";
 
+/* Dark mode follows data-theme on <html> (set before first paint by the inline script in layout.tsx). */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/*
+ * VERITAS design system: Augustinian Crimson & Gold.
+ * Theme-dependent values are CSS variables; the existing Tailwind `zinc` / `indigo` utilities are
+ * remapped onto them below, so every screen picks up the palette without per-component edits
+ * (`indigo-*` is the brand crimson; semantic green / amber / rose / red stay standard Tailwind).
+ */
 :root {
-  --background: #f4f5f7;
-  --foreground: #16181d;
+  color-scheme: light;
+  --bg: #f9f9fb;
+  --surface: #ffffff;
+  --border: #e4e4e9;
+  --fg: #14151a;
+  --muted: #5a5e6b;
+  --brand: #8e1b20;
+  --brand-hover: #731418;
+  --brand-tint: #fdf2f2;
+  --gold: #c89211;
+  --gold-hover: #b07e0b;
+  --gold-tint: #fef9ec;
+  --brand-soft: #f3c0c2;      /* indigo-200: borders of tinted brand chips */
+  --brand-text-on-tint: #731418;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d0e12;
+  --surface: #16181f;
+  --border: #262934;
+  --fg: #f4f5f7;
+  --muted: #9ba1b0;
+  --brand: #e03e45;
+  --brand-hover: #ef535a;
+  --brand-tint: rgba(224, 62, 69, 0.14);
+  --gold: #f0b429;
+  --gold-hover: #f5c451;
+  --gold-tint: rgba(240, 180, 41, 0.14);
+  --brand-soft: rgba(224, 62, 69, 0.4);
+  --brand-text-on-tint: #f5a3a7;
+}
+/* no-JS fallback: follow the OS */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --bg: #0d0e12; --surface: #16181f; --border: #262934; --fg: #f4f5f7; --muted: #9ba1b0;
+    --brand: #e03e45; --brand-hover: #ef535a; --brand-tint: rgba(224, 62, 69, 0.14);
+    --gold: #f0b429; --gold-hover: #f5c451; --gold-tint: rgba(240, 180, 41, 0.14);
+  }
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0f1115;
-    --foreground: #e7e9ee;
-  }
+@theme {
+  /* neutral scale: light shades are the light-mode surfaces, dark shades the dark-mode surfaces */
+  --color-zinc-50: #f9f9fb;
+  --color-zinc-100: #f1f1f4;
+  --color-zinc-200: #e4e4e9;
+  --color-zinc-300: #d3d4dc;
+  --color-zinc-400: #9ba1b0;
+  --color-zinc-500: var(--muted);
+  --color-zinc-600: #5a5e6b;
+  --color-zinc-700: #3d404c;
+  --color-zinc-800: #262934;
+  --color-zinc-900: #14151a;
+  --color-zinc-950: #16181f;
+
+  /* brand crimson (was indigo) */
+  --color-indigo-50: var(--brand-tint);
+  --color-indigo-100: #fbe3e3;
+  --color-indigo-200: var(--brand-soft);
+  --color-indigo-300: #f08a8f;
+  --color-indigo-400: #e8636a;
+  --color-indigo-500: #e03e45;
+  --color-indigo-600: var(--brand);
+  --color-indigo-700: var(--brand-hover);
+  --color-indigo-800: var(--brand-text-on-tint);
+  --color-indigo-900: #5c1013;
+
+  /* augustinian gold accent */
+  --color-gold: var(--gold);
+  --color-gold-hover: var(--gold-hover);
+  --color-gold-tint: var(--gold-tint);
 }
 
+html { background: var(--bg); }
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg);
+  color: var(--fg);
   font-family: var(--font-sans);
 }
+::selection { background: var(--gold-tint); color: var(--fg); }
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }

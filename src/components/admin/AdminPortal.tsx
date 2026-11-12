@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import AppNav from "@/components/AppNav";
+import Brand, { EmptyHero } from "@/components/brand/Brand";
 import CloudBar from "@/components/cloud/CloudBar";
 import { useCloudSession } from "@/components/cloud/CloudSession";
 import { AUDIT_KINDS, AUDIT_LABEL, type AuditKind } from "@/lib/admin/audit";
@@ -24,7 +25,7 @@ const when = (t: number) => new Date(t).toLocaleString(undefined, { dateStyle: "
 function Header() {
   return (
     <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
-      <h1 className="text-[15px] font-semibold tracking-tight">Admin portal</h1>
+      <Brand page="Admin" />
       <AppNav />
       <div className="ml-auto"><CloudBar /></div>
     </header>
@@ -36,8 +37,7 @@ function Notice({ title, children }: { title: string; children: React.ReactNode 
     <div className="flex min-h-dvh flex-col">
       <Header />
       <main className="mx-auto mt-16 max-w-md px-4 text-center" data-testid="admin-notice">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <p className="mt-2 text-sm text-zinc-500">{children}</p>
+        <EmptyHero title={title}>{children}</EmptyHero>
       </main>
     </div>
   );
@@ -243,7 +243,7 @@ function Policy({ orgId }: { orgId: Id<"orgs"> }) {
         <input aria-label="Allowed domains" className={`${input} w-full`} placeholder="usa.edu.ph, faculty.usa.edu.ph" value={domains} onChange={(e) => setDomains(e.target.value)} />
       </div>
       <div className="md:col-span-2">
-        <button type="button" className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40" disabled={errors.length > 0}
+        <button type="button" className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40" disabled={errors.length > 0}
           onClick={() => { setMsg(null); save({ orgId, gradingFormula: f, allowedDomains: domains.split(/[\s,;]+/).filter(Boolean) }).then(() => setMsg({ ok: true, text: "Policy saved." })).catch((e) => setMsg({ ok: false, text: errText(e) })); }}>Save policy</button>
         {msg && <span role="status" className={`ml-3 text-sm ${msg.ok ? "text-emerald-700" : "text-red-600"}`}>{msg.text}</span>}
       </div>

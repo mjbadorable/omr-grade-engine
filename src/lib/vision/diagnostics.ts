@@ -18,8 +18,8 @@ export type RingClass = "confident" | "warning" | "empty";
 
 export const RING_STYLE: Record<RingClass, { color: string; label: string }> = {
   confident: { color: "rgba(22,163,74,.95)", label: "Filled, confident (> 0.75)" },
-  warning: { color: "rgba(234,179,8,.98)", label: "Partial / erasure / low confidence" },
-  empty: { color: "rgba(220,38,38,.55)", label: "Empty" },
+  warning: { color: "rgba(245,158,11,.98)", label: "Partial / erasure / low confidence" },
+  empty: { color: "rgba(244,63,94,.6)", label: "Empty" },
 };
 
 export function ringClass(b: Pick<BubbleReadout, "state" | "confidence">): RingClass {

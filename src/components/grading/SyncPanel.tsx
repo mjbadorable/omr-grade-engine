@@ -36,7 +36,7 @@ export default function SyncPanel({ pending, teacherId, endpoint, onTeacher, onE
           <label className="block">Teacher name<input className="mt-1 w-full rounded border border-zinc-300 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900" defaultValue={teacherId} onBlur={(e) => onTeacher(e.target.value)} /></label>
           <label className="block">Sync server URL<input className="mt-1 w-full rounded border border-zinc-300 px-2 py-1 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-900" placeholder="https://your-backend/api/omr-sync" defaultValue={endpoint} onBlur={(e) => onEndpoint(e.target.value)} /></label>
           <div className="flex items-center gap-2">
-            <button type="button" disabled={!endpoint || busy} className="rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
+            <button type="button" disabled={!endpoint || busy} className="rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
               onClick={async () => { setBusy(true); try { setReport(await onSync()); } finally { setBusy(false); } }}>{busy ? "Syncing…" : "Sync now"}</button>
             <span className="text-xs text-zinc-500">{pending} queued</span>
           </div>

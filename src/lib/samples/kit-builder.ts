@@ -78,7 +78,7 @@ export async function buildSampleKitZip(): Promise<Blob> {
     files[`scans/student-${i + 1}-${s.rollNumber}.jpg`] = new Uint8Array(await jpg.arrayBuffer());
   }
   files["README.txt"] = strToU8([
-    "OMR Grade Engine - Sample Exam Kit",
+    "VERITAS - Sample Exam Kit",
     "",
     "answer-sheet.pdf           Print at 100% scale (20 questions, roll number, exam set A/B).",
     "template-coordinates.json  Coordinate map of the sheet (load it on the Scan or Grade page).",

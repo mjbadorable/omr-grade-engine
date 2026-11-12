@@ -16,7 +16,7 @@ import { studentName } from "./names";
 export { studentName };
 
 export const SAMPLE_SETTINGS: LayoutSettings = {
-  templateId: "sample-kit-20q", version: 1, title: "Sample Quiz (20 questions)", subtitle: "OMR Grade Engine - evaluation kit",
+  templateId: "sample-kit-20q", version: 1, title: "Sample Quiz (20 questions)", subtitle: "VERITAS - Evaluation Kit",
   paper: "A4", columns: 2, bubbleDiameterMm: 4.6, rollDigits: 6, rollStartDigit: 0, examSets: 2, nameField: true,
   sections: [
     { id: "math", name: "Mathematics", type: "mcq", questionCount: 10, optionCount: 4, optionStyle: "letters" },

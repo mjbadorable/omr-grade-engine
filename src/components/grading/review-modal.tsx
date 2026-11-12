@@ -108,7 +108,7 @@ export default function ReviewModal({ sheet, scan, rawFields, patches, answerKey
           )}
           <label className="flex min-w-[240px] flex-1 flex-col gap-1">Reason (saved in the audit log)<input className={input} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
           <button type="button" disabled={!pendingChanges || !reason.trim()} onClick={saveAll}
-            className="rounded-md bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-500 disabled:opacity-40">
+            className="rounded-md bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-700 disabled:opacity-40">
             Save {pendingChanges || ""} change{pendingChanges === 1 ? "" : "s"}
           </button>
           {draft.size > 0 && <button type="button" className="text-sm text-zinc-500 underline" onClick={() => setDraft(new Map())}>discard</button>}

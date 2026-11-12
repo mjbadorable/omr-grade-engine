@@ -139,7 +139,7 @@ function SetMappings({ answerKey, onChange }: { answerKey: AnswerKey; onChange: 
       <p className="mt-2 text-xs text-zinc-500">One line per printed question: <code>printed:master[:SHUFFLE]</code>, e.g. <code>1:7:CABD</code> = printed Q1 is master Q7 and its printed A,B,C,D are master C,A,B,D. Empty = same as the key.</p>
       <textarea className={`${input} mt-2 h-32 w-full font-mono text-xs`} value={text} onChange={(e) => setText(e.target.value)} aria-label={`Mapping for set ${active}`} />
       <div className="mt-2 flex items-center gap-2">
-        <button type="button" className="rounded-md bg-indigo-600 px-3 py-1 text-white hover:bg-indigo-500"
+        <button type="button" className="rounded-md bg-indigo-600 px-3 py-1 text-white hover:bg-indigo-700"
           onClick={() => {
             const { mapping, errors: errs } = parseSetMappingText(text, answerKey);
             setErrors(errs);

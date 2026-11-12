@@ -1,6 +1,7 @@
 "use client";
 
 import AppNav from "@/components/AppNav";
+import Brand from "@/components/brand/Brand";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { computeLayout, type LayoutResult } from "@/lib/omr/layout-engine";
 import { DEFAULT_SETTINGS, PRESETS } from "@/lib/omr/presets";
@@ -8,6 +9,7 @@ import { writeStoredTemplate } from "@/lib/storage/template-store";
 import type { LayoutSettings } from "@/lib/omr/schema";
 import DebugDrawer, { IssueList } from "./DebugDrawer";
 import SettingsPanel from "./SettingsPanel";
+import HeroStrip from "./HeroStrip";
 import SyllabusDropzone from "./SyllabusDropzone";
 import SheetPreview, { type PreviewOverlays } from "./SheetPreview";
 
@@ -84,10 +86,7 @@ export default function SheetDesigner() {
   return (
     <div className="flex h-dvh flex-col">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="flex items-center gap-2">
-          <svg viewBox="0 0 24 24" className="size-6" aria-hidden><rect x="2" y="2" width="5" height="5" fill="currentColor" /><rect x="17" y="2" width="5" height="5" fill="currentColor" /><rect x="2" y="17" width="5" height="5" fill="currentColor" /><rect x="17" y="17" width="5" height="5" fill="currentColor" /><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.6" /></svg>
-          <h1 className="text-[15px] font-semibold tracking-tight">OMR Sheet Designer</h1>
-        </div>
+        <Brand page="Sheet Designer" />
         <AppNav />
         <select aria-label="Load preset" className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
           value="" onChange={(e) => {
@@ -118,12 +117,13 @@ export default function SheetDesigner() {
             onClick={() => result && download(`template-coordinates.json`, JSON.stringify(result.template, null, 2), "application/json")}>
             Download JSON
           </button>
-          <button type="button" disabled={!canExport || busy} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-500`} onClick={exportPdf}>
+          <button type="button" disabled={!canExport || busy} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`} onClick={exportPdf}>
             {busy ? "Generating…" : "Download PDF"}
           </button>
         </div>
       </header>
 
+      <HeroStrip />
       <SyllabusDropzone settings={settings} onConfigure={(next) => { setSettings(next); setPageIndex(0); }} />
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">

@@ -2,6 +2,7 @@
  * Student scorecard slips (vector PDF, pdf-lib). One A4 page per student; batch output is a
  * single PDF with one page per student. Deterministic bytes for identical input.
  */
+import { BRAND } from "@/lib/brand";
 import { PDFDocument, type PDFFont, type PDFPage, rgb, StandardFonts } from "pdf-lib";
 import type { ScoredSheet } from "@/lib/grading/types";
 import { sanitizeText } from "@/lib/omr/layout-engine";
@@ -175,7 +176,7 @@ async function drawCard(doc: PDFDocument, f: Fonts, c: ScorecardInput) {
 export async function generateScorecardsPdf(cards: readonly ScorecardInput[], meta: { title?: string } = {}): Promise<Uint8Array> {
   const doc = await PDFDocument.create({ updateMetadata: false });
   doc.setTitle(meta.title ?? "Scorecards");
-  doc.setCreator("OMR Grade Engine");
+  doc.setCreator(`${BRAND.name}, ${BRAND.institution}`);
   doc.setProducer("pdf-lib");
   doc.setCreationDate(FIXED_DATE);
   doc.setModificationDate(FIXED_DATE);

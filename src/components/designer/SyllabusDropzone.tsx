@@ -148,7 +148,7 @@ export default function SyllabusDropzone({ settings, onConfigure }: Props) {
               )}
             </div>
             <div className="flex gap-2">
-              <button type="button" onClick={apply} disabled={!tos.rows.length} className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40">Configure exam from syllabus</button>
+              <button type="button" onClick={apply} disabled={!tos.rows.length} className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40">Configure exam from syllabus</button>
               <button type="button" onClick={() => { setParsed(null); setTos(null); setError(null); }} className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700">Cancel</button>
             </div>
           </div>

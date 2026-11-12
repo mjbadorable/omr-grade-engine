@@ -3,6 +3,7 @@
  * (mean, SD, KR-20, SEM, item quality) with syllabus outcome attainment (CO bars, PO roll-up).
  */
 import { PDFDocument, type PDFFont, type PDFPage, rgb, StandardFonts } from "pdf-lib";
+import { BRAND } from "@/lib/brand";
 import type { PsychometricReport } from "@/lib/grading/types";
 import type { AttainmentReport } from "./attainment";
 import { PERIOD_LABEL, type ExamPeriod, type Syllabus } from "./types";
@@ -33,8 +34,8 @@ const INK = rgb(0.09, 0.09, 0.11);
 const MUTED = rgb(0.4, 0.4, 0.45);
 const LINE = rgb(0.85, 0.85, 0.88);
 const OK = rgb(0.09, 0.55, 0.36);
-const BAD = rgb(0.8, 0.2, 0.2);
-const BRAND = rgb(0.31, 0.27, 0.9);
+const BAD = rgb(0.86, 0.15, 0.15);
+const CRIMSON = rgb(0.557, 0.106, 0.125);
 
 // pdf-lib standard fonts are WinAnsi only: replace anything else so the export never throws.
 const safe = (s: string) => s.replace(/[^\x20-\x7e -ÿ]/g, (c) => ({ "–": "-", "—": "-", "‘": "'", "’": "'", "“": '"', "”": '"', "•": "*", "≥": ">=", "≤": "<=" } as Record<string, string>)[c] ?? "?");
@@ -49,7 +50,7 @@ function fit(font: PDFFont, s: string, size: number, maxW: number): string {
 export async function buildAccreditationReport(i: AccreditationInput): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.setTitle(`Accreditation report - ${i.examName}`);
-  doc.setProducer("OMR Grade Engine");
+  doc.setProducer(`${BRAND.name}, ${BRAND.institution}`);
   const f = { r: await doc.embedFont(StandardFonts.Helvetica), b: await doc.embedFont(StandardFonts.HelveticaBold) };
   let page: PDFPage = doc.addPage(A4);
   let y = M;
@@ -59,10 +60,13 @@ export async function buildAccreditationReport(i: AccreditationInput): Promise<U
   const rule = () => page.drawLine({ start: { x: M, y: A4[1] - y }, end: { x: A4[0] - M, y: A4[1] - y }, thickness: 0.6, color: LINE });
   const ensure = (h: number) => { if (y + h > A4[1] - M - 30) { page = doc.addPage(A4); y = M; } };
 
-  T(i.institute || "Assessment report", M, 9, f.b, MUTED, W); y += 16;
+  // brand header: wordmark + expansion, crimson rule, then the institute line
+  page.drawRectangle({ x: 0, y: A4[1] - 6, width: A4[0], height: 6, color: CRIMSON });
+  T(BRAND.name, M, 13, f.b, CRIMSON); T(`${BRAND.expansion}`, M + 70, 7.5, f.r, MUTED, W - 70); y += 20;
+  T(i.institute || BRAND.institution, M, 9, f.b, MUTED, W); y += 16;
   T("Outcomes-Based Assessment: Accreditation Audit Slip", M, 16, f.b, INK, W); y += 24;
   const course = i.syllabus ? `${i.syllabus.courseCode}  ${i.syllabus.courseTitle}` : "Course not linked to a syllabus";
-  T(course, M, 11, f.b, BRAND, W); y += 16;
+  T(course, M, 11, f.b, CRIMSON, W); y += 16;
   T(`${i.examName}${i.period ? `  |  ${PERIOD_LABEL[i.period]}` : ""}${i.syllabus?.term ? `  |  ${i.syllabus.term}` : ""}`, M, 9, f.r, MUTED, W); y += 14;
   rule(); y += 12;
 
@@ -130,6 +134,6 @@ export async function buildAccreditationReport(i: AccreditationInput): Promise<U
     page.drawText(label, { x, y: A4[1] - y - 11, size: 8, font: f.r, color: MUTED });
   }
   const pages = doc.getPages();
-  pages.forEach((pg, n) => pg.drawText(`Generated ${i.generatedAt.toISOString().slice(0, 10)}  |  OMR Grade Engine  |  page ${n + 1}/${pages.length}`, { x: M, y: 20, size: 7, font: f.r, color: MUTED }));
+  pages.forEach((pg, n) => pg.drawText(`Generated ${i.generatedAt.toISOString().slice(0, 10)}  |  ${BRAND.name} - ${BRAND.institution}  |  page ${n + 1}/${pages.length}`, { x: M, y: 20, size: 7, font: f.r, color: MUTED }));
   return doc.save();
 }

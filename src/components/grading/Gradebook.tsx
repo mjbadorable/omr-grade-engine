@@ -46,7 +46,7 @@ export default function Gradebook({ sheets, onOpen, names }: { sheets: ScoredShe
           </thead>
           <tbody>
             {rows.map(({ s, flags }) => (
-              <tr key={s.sheetId} onClick={() => onOpen(s.sheetId)} className="cursor-pointer border-b border-zinc-100 hover:bg-indigo-50/60 dark:border-zinc-800 dark:hover:bg-indigo-500/10">
+              <tr key={s.sheetId} onClick={() => onOpen(s.sheetId)} className="cursor-pointer border-b border-zinc-100 hover:bg-indigo-50/60 dark:border-zinc-800 dark:hover:bg-indigo-700/10">
                 <td className="px-3 py-1.5">{names.get(s.sheetId) ?? <span className="text-xs text-amber-700">not on roster</span>}</td>
                 <td className="px-3 font-mono">{s.rollNumber ?? <span className="text-red-600">unreadable</span>}{(dupes.get(s.rollNumber ?? "") ?? 0) > 1 && <span className="ml-1 text-xs text-amber-600">dup</span>}</td>
                 <td className="px-3">{s.examSet ?? "–"}</td>

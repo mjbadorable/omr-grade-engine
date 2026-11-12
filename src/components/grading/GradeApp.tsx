@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import AppNav from "@/components/AppNav";
+import Brand, { EmptyHero } from "@/components/brand/Brand";
 import CloudBar from "@/components/cloud/CloudBar";
 import { useCloudExam } from "@/components/cloud/CloudExam";
 import { answerKeyToBody } from "@/lib/cloud/convert";
@@ -351,9 +352,9 @@ export default function GradeApp() {
   if (!template || !key) {
     return (
       <div className="min-h-dvh">
-        <header className="flex items-center gap-4 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950"><h1 className="text-[15px] font-semibold">Gradebook</h1><AppNav /><div className="ml-auto"><CloudBar /></div></header>
+        <header className="flex items-center gap-4 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950"><Brand page="Gradebook" /><AppNav /><div className="ml-auto"><CloudBar /></div></header>
         <div className="mx-auto max-w-xl p-8 text-center">
-          <p className="mb-4 text-sm text-zinc-500">{cloud === null && cloudExamId === null ? "Design a sheet first (it is remembered in this browser), load its template-coordinates.json, open a cloud exam, or download the Sample Exam Kit from the designer." : "Loading the cloud exam…"}</p>
+          <EmptyHero title="Nothing to grade yet" className="mb-4">{cloud === null && cloudExamId === null ? "Design a sheet first (it is remembered in this browser), load its template-coordinates.json, open a cloud exam, or download the Sample Exam Kit from the designer." : "Loading the cloud exam…"}</EmptyHero>
           <div className="flex justify-center gap-2">
             <Link href="/designer" className={outline}>Open designer</Link>
             <label className={`${outline} cursor-pointer`}>Load template JSON<input type="file" accept=".json,application/json" className="sr-only" onChange={(e) => onTemplateFile(e.target.files?.[0])} /></label>
@@ -372,7 +373,7 @@ export default function GradeApp() {
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
-        <h1 className="text-[15px] font-semibold tracking-tight">Gradebook</h1>
+        <Brand page="Gradebook" />
         <AppNav />
         <span className="truncate text-sm text-zinc-500">{template.title} · <span className="font-mono text-xs">#{template.layoutHash}</span></span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -388,7 +389,7 @@ export default function GradeApp() {
           <button type="button" className={outline} disabled={!graded?.sheets.length || !!busy} onClick={() => scorecards()}>{busy ?? "Scorecards PDF"}</button>
           <button type="button" className={outline} disabled={!graded?.sheets.length}
             onClick={() => graded && download(`${key.examId}-v${key.version}-results.csv`, "﻿" + toCsv(gradebookRows(graded.sheets, key)), "text/csv;charset=utf-8")}>CSV</button>
-          <button type="button" className={`${btn} bg-indigo-600 text-white hover:bg-indigo-500`} disabled={!graded?.sheets.length} onClick={exportXlsx}>Excel</button>
+          <button type="button" className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`} disabled={!graded?.sheets.length} onClick={exportXlsx}>Excel</button>
         </div>
       </header>
 
@@ -466,7 +467,7 @@ export default function GradeApp() {
 function Empty() {
   return (
     <div className="grid min-h-60 place-items-center rounded-lg border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700">
-      <p>No sheets yet. Scan answer sheets on the <Link href="/scan" className="text-indigo-600 underline">Scan</Link> page, or click <b>Demo class</b> to try everything with simulated students.</p>
+      <EmptyHero title="No sheets graded yet">Scan answer sheets on the <Link href="/scan" className="text-indigo-600 underline">Scan</Link> page, or click <b>Demo class</b> to try everything with simulated students.</EmptyHero>
     </div>
   );
 }

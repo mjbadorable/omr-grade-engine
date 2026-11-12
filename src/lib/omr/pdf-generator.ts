@@ -6,6 +6,7 @@
  * Output is deterministic: fixed metadata dates, no producer timestamps.
  */
 import { PDFDocument, type PDFFont, type PDFPage, StandardFonts, rgb } from "pdf-lib";
+import { BRAND } from "@/lib/brand";
 import { pagePrimitives, type Prim } from "./primitives";
 import type { OMRTemplate } from "./schema";
 
@@ -53,7 +54,7 @@ export async function generatePdf(template: OMRTemplate, opts: { embedTemplate?:
   doc.setTitle(template.title || "OMR answer sheet");
   doc.setSubject(`omr-template ${template.templateId} v${template.version} hash ${template.layoutHash}`);
   doc.setKeywords(["omr", template.schema, template.layoutHash]);
-  doc.setCreator("OMR Sheet Designer");
+  doc.setCreator(`${BRAND.name}, ${BRAND.institution}`);
   doc.setProducer("pdf-lib");
   doc.setCreationDate(FIXED_DATE);
   doc.setModificationDate(FIXED_DATE);
@@ -65,6 +66,14 @@ export async function generatePdf(template: OMRTemplate, opts: { embedTemplate?:
   for (const p of template.pages) {
     const page = doc.addPage([template.paper.widthMm * PT_PER_MM, template.paper.heightMm * PT_PER_MM]);
     for (const pr of pagePrimitives(template, p)) drawPrim(page, pr, fonts);
+    // Brand footer in the bottom paper margin, only when there is room outside the registered sheet area.
+    const bottomMm = template.paper.heightMm - template.paper.originMm[1] - template.sheet.heightMm;
+    if (bottomMm >= 9) {
+      const text = `${BRAND.name} · ${BRAND.institution} · ${template.title || template.templateId} · v${template.version} · #${template.layoutHash}`.replace(/[^\x20-\x7e\u00b7]/g, "?");   // standard fonts are WinAnsi only
+      const size = 6;
+      const w = fonts.regular.widthOfTextAtSize(text, size);
+      page.drawText(text, { x: (template.paper.widthMm * PT_PER_MM - w) / 2, y: 4.5 * PT_PER_MM, size, font: fonts.regular, color: rgb(0.45, 0.45, 0.5) });
+    }
   }
   if (opts.embedTemplate !== false) {
     await doc.attach(new TextEncoder().encode(JSON.stringify(template)), "template-coordinates.json", {

@@ -99,7 +99,7 @@ export default function CloudBar({ localTemplate }: { localTemplate?: OMRTemplat
                     return (
                       <>
                         {linked && <p className="text-xs text-zinc-500" data-testid="cloud-syllabus-link">Linked to <b>{linked.syllabus.courseCode}</b> · {PERIOD_LABEL[linked.period]}: outcomes are saved with the exam.</p>}
-                        <button type="button" className="w-full rounded-md bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-500"
+                        <button type="button" className="w-full rounded-md bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-700"
                           onClick={() => run(() => s.createExam(localTemplate.title, localTemplate, linked))}>
                           Create cloud exam from “{localTemplate.title}”
                         </button>

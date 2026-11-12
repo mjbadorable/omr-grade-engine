@@ -1,6 +1,7 @@
 "use client";
 
 import AppNav from "@/components/AppNav";
+import Brand, { EmptyHero } from "@/components/brand/Brand";
 import CloudBar from "@/components/cloud/CloudBar";
 import { useCloudSession } from "@/components/cloud/CloudSession";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -129,7 +130,7 @@ export default function ScannerApp() {
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="flex flex-wrap items-center gap-3 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
-        <h1 className="text-[15px] font-semibold tracking-tight">OMR Scanner</h1>
+        <Brand page="Scanner" />
         <AppNav />
         <div className="ml-auto"><CloudBar localTemplate={cloudTemplate ? null : template} /></div>
         <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${engine.state === "ready" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : engine.state === "error" ? "bg-red-100 text-red-700" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`}>
@@ -172,7 +173,7 @@ export default function ScannerApp() {
               ))}
             </div>
             {mode === "upload" ? (
-              <label className={`${btn} w-full cursor-pointer bg-indigo-600 py-2 text-white hover:bg-indigo-500 ${ready ? "" : "pointer-events-none opacity-40"}`}>
+              <label className={`${btn} w-full cursor-pointer bg-indigo-600 py-2 text-white hover:bg-indigo-700 ${ready ? "" : "pointer-events-none opacity-40"}`}>
                 Choose answer-sheet images…
                 <input type="file" accept="image/*" multiple className="sr-only" disabled={!ready} onChange={(e) => { onFiles(e.target.files); e.target.value = ""; }} />
               </label>
@@ -197,8 +198,8 @@ export default function ScannerApp() {
 
         <section className="min-w-0">
           {current ? <JobDetail job={current} template={template} diagnostics={diagnostics} tuning={tuning} onRescan={(j) => j.source && runScan(`${j.name} (rescan)`, j.source, { calibration: true })} /> : (
-            <div className="grid h-full min-h-60 place-items-center rounded-lg border border-dashed border-zinc-300 text-sm text-zinc-500 dark:border-zinc-700">
-              Scan results appear here.
+            <div className="grid h-full min-h-60 place-items-center rounded-lg border border-dashed border-zinc-300 p-6 dark:border-zinc-700">
+              <EmptyHero title="Scan an answer sheet">Choose photos or open the camera: the scan result and overlay appear here.</EmptyHero>
             </div>
           )}
         </section>
@@ -381,7 +382,7 @@ function CameraPanel({ client, enabled, onCapture }: { client: ScannerClient | n
         </span>
         {quality && <span className="font-mono text-[11px] text-zinc-400" title="mean luminance / clipped pixels">L{Math.round(quality.meanLuma)} · {Math.round(quality.saturatedFraction * 100)}%</span>}
         {torch.supported && <button type="button" aria-pressed={torch.on} className={`${btn} border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700`} onClick={toggleTorch}>{torch.on ? "Torch off" : "Torch"}</button>}
-        <button type="button" disabled={!aligned} className={`${btn} ml-auto bg-indigo-600 text-white hover:bg-indigo-500`}
+        <button type="button" disabled={!aligned} className={`${btn} ml-auto bg-indigo-600 text-white hover:bg-indigo-700`}
           onClick={async () => { const v = video.current; if (v) onCapture(await createImageBitmap(v)); }}>
           Capture & scan
         </button>

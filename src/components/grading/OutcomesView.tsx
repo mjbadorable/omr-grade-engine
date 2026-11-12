@@ -41,7 +41,7 @@ export default function OutcomesView({ report, exporting, onExport, subtitle }: 
           <p className="text-xs text-zinc-500">{subtitle} · {report.n} student{report.n === 1 ? "" : "s"} · target {report.target}%</p>
         </div>
         <button type="button" disabled={exporting || report.n < 2} onClick={onExport}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+          className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
           title={report.n < 2 ? "Needs at least 2 graded sheets" : "PDF audit slip: psychometric reliability + outcome attainment"}>
           {exporting ? "Building PDF…" : "Export accreditation report"}
         </button>

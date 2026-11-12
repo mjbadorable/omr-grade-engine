@@ -26,7 +26,7 @@ export default function ConflictPanel({ groups, sheets, onKeep, onOpen }: {
                 <div key={id} className="flex items-center gap-2 rounded border border-zinc-200 px-2 py-1 dark:border-zinc-700">
                   <span className="text-xs text-zinc-600 dark:text-zinc-400">{s?.teacherId ?? "?"} · {s ? new Date(s.createdAt).toLocaleString() : ""}</span>
                   <button type="button" className="text-xs text-indigo-600 underline" onClick={() => onOpen(id)}>inspect</button>
-                  <button type="button" className="rounded bg-indigo-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-indigo-500" onClick={() => onKeep(g, id)}>Keep this</button>
+                  <button type="button" className="rounded bg-indigo-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-indigo-700" onClick={() => onKeep(g, id)}>Keep this</button>
                 </div>
               );
             })}

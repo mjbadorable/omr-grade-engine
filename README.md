@@ -1,4 +1,10 @@
-# OMR Grade Engine
+# VERITAS
+
+**Verified Exam Recognition & Instant Test Analytics System** · University of San Agustin
+
+> Instant mobile grading backed by Augustinian outcomes intelligence.
+
+(Repository: `omr-grade-engine`.)
 
 Design → scan → grade OMR answer sheets, offline-first. Routes: `/designer`, `/scan`, `/grade`. One JSON template, computed by a pure layout engine, drives the live SVG preview, the client-side vector PDF and (from Sprint 2) the OpenCV scanner.
 

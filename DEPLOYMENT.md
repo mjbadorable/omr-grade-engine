@@ -1,4 +1,4 @@
-# Deployment checklist: Vercel + Convex + Clerk (University of San Agustin)
+# VERITAS deployment checklist: Vercel + Convex + Clerk (University of San Agustin)
 
 Production serves **verified `@usa.edu.ph` Google accounts only**, through Clerk. Work top to bottom; every step has a check.
 

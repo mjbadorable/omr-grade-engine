@@ -35,7 +35,7 @@ export default function RosterPanel({ roster, recon, onImport, onOpen, download 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-white p-3 text-sm dark:border-zinc-800 dark:bg-zinc-950">
-        <label className="inline-flex cursor-pointer items-center rounded-md bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-500">
+        <label className="inline-flex cursor-pointer items-center rounded-md bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-700">
           Import roster CSV<input type="file" accept=".csv,text/csv,.txt" className="sr-only" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ""; }} />
         </label>
         <span className="text-zinc-500">{roster ? `${roster.name}: ${roster.students.length} students` : "No roster imported. Columns like Roll No / Student ID / LRN and Name / Full Name are detected automatically."}</span>
