@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import AppNav from "@/components/AppNav";
-import Brand, { EmptyHero } from "@/components/brand/Brand";
-import CloudBar from "@/components/cloud/CloudBar";
+import { EmptyHero } from "@/components/brand/Brand";
+import { useCloudSession } from "@/components/cloud/CloudSession";
+import { BRAND } from "@/lib/brand";
 import { useCloudExam } from "@/components/cloud/CloudExam";
 import { answerKeyToBody } from "@/lib/cloud/convert";
 import { renderScorecards } from "@/lib/export/scorecard-client";
@@ -43,7 +43,6 @@ import SyncPanel from "./SyncPanel";
 type Tab = "key" | "gradebook" | "roster" | "analysis" | "outcomes";
 const btn = "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40";
 const outline = `${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`;
-const INSTITUTE_KEY = "omr:institute";
 
 function download(name: string, data: BlobPart, type: string) {
   const url = URL.createObjectURL(new Blob([data], { type }));
@@ -72,7 +71,8 @@ export default function GradeApp() {
   const [busy, setBusy] = useState<string | null>(null);
   const [pending, setPending] = useState(0);
   const [who, setWho] = useState({ teacherId: "teacher", endpoint: "" });
-  const [institute, setInstitute] = useState("");
+  const institute = BRAND.institution;
+  const cloudSession = useCloudSession();
   const [plan, setPlan] = useState<SyllabusPlan | null>(null);
   const [exportingObe, setExportingObe] = useState(false);
 
@@ -101,7 +101,6 @@ export default function GradeApp() {
 
   useEffect(() => {
     setWho({ teacherId: identity().teacherId, endpoint: syncEndpoint() });
-    try { setInstitute(localStorage.getItem(INSTITUTE_KEY) ?? ""); } catch { /* ignore */ }
     refreshPending();
   }, [refreshPending]);
   useEffect(() => {
@@ -353,7 +352,6 @@ export default function GradeApp() {
   if (!template || !key) {
     return (
       <div className="min-h-dvh">
-        <header className="flex items-center gap-4 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950"><Brand page="Gradebook" /><AppNav /><div className="ml-auto"><CloudBar /></div></header>
         <div className="mx-auto max-w-xl p-8 text-center">
           <EmptyHero title="Nothing to grade yet" className="mb-4">{cloud === null && cloudExamId === null ? "Design a sheet first (it is remembered in this browser), load its template-coordinates.json, open a cloud exam, or download the Sample Exam Kit from the designer." : "Loading the cloud exam…"}</EmptyHero>
           <div className="flex justify-center gap-2">
@@ -373,16 +371,13 @@ export default function GradeApp() {
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
-        <Brand page="Gradebook" />
-        <AppNav />
+      <div role="toolbar" aria-label="Gradebook actions" data-testid="page-toolbar" className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-200 bg-zinc-50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900/40">
         <span className="truncate text-sm text-zinc-500">{template.title} · <span className="font-mono text-xs">#{template.layoutHash}</span></span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <span data-testid="key-status" className="rounded-full bg-zinc-100 px-2.5 py-0.5 font-mono text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title="Every edit creates a new key version and rescores all sheets">
             {cloud ? `cloud key v${cloudBase.current ?? key.version}${cloudSaving ? " · saving…" : ""}` : `key v${key.version}`} · {keyed}/{key.questions.size} keyed · {graded?.sheets.length ?? 0} sheets in {graded ? graded.ms.toFixed(0) : "–"} ms
           </span>
-          <CloudBar localTemplate={cloud ? null : template} />
-          {!cloud && <SyncPanel pending={pending} teacherId={who.teacherId} endpoint={who.endpoint}
+          {!cloudSession && <SyncPanel pending={pending} teacherId={who.teacherId} endpoint={who.endpoint}
             onTeacher={(v) => { setTeacherId(v); setWho((w) => ({ ...w, teacherId: identity().teacherId })); }}
             onEndpoint={(v) => { setSyncEndpoint(v); setWho((w) => ({ ...w, endpoint: v.trim() })); }}
             onSync={async () => { const e = makeEngine(); if (!e) return null; const r = await e.syncOnce(); refreshPending(); if (r.pulled) load(template); return r; }} />}
@@ -392,7 +387,7 @@ export default function GradeApp() {
             onClick={() => graded && download(`${key.examId}-v${key.version}-results.csv`, "﻿" + toCsv(gradebookRows(graded.sheets, key)), "text/csv;charset=utf-8")}>CSV</button>
           <button type="button" className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`} disabled={!graded?.sheets.length} onClick={exportXlsx}>Excel</button>
         </div>
-      </header>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-2 text-sm dark:border-zinc-800">
         <div className="flex flex-wrap gap-1" role="tablist">
@@ -408,10 +403,6 @@ export default function GradeApp() {
           ))}
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-1 text-xs text-zinc-500">School
-            <input className="w-44 rounded border border-zinc-300 px-2 py-1 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" placeholder="for scorecards" value={institute}
-              onChange={(e) => { setInstitute(e.target.value); try { localStorage.setItem(INSTITUTE_KEY, e.target.value); } catch { /* ignore */ } }} />
-          </label>
           <button type="button" className={outline} onClick={() => download(`${key.examId}-key-v${key.version}.json`, JSON.stringify(serializeKey(key), null, 2), "application/json")}>Export key</button>
           <label className={`${outline} cursor-pointer`}>Import key<input type="file" accept=".json,application/json" className="sr-only" onChange={(e) => { onKeyFile(e.target.files?.[0]); e.target.value = ""; }} /></label>
           <button type="button" className={outline} onClick={() => { if (confirm("Reset the answer key to blank?")) editKey(updateKey(keyFromTemplate(template), { })); }}>Reset key</button>

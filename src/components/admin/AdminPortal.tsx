@@ -8,9 +8,7 @@ import { useMutation, useQuery } from "convex/react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import AppNav from "@/components/AppNav";
-import Brand, { EmptyHero } from "@/components/brand/Brand";
-import CloudBar from "@/components/cloud/CloudBar";
+import { EmptyHero } from "@/components/brand/Brand";
 import { useCloudSession } from "@/components/cloud/CloudSession";
 import { AUDIT_KINDS, AUDIT_LABEL, type AuditKind } from "@/lib/admin/audit";
 import { CLASE_FORMULA, type GradingFormula, labGrade, lectureGrade, termGrade, validateFormula } from "@/lib/admin/formula";
@@ -22,20 +20,9 @@ const btn = "rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium h
 const errText = (e: unknown) => (e as { data?: { message?: string } })?.data?.message ?? (e as Error)?.message ?? String(e);
 const when = (t: number) => new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
-function Header() {
-  return (
-    <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
-      <Brand page="Admin" />
-      <AppNav />
-      <div className="ml-auto"><CloudBar /></div>
-    </header>
-  );
-}
-
 function Notice({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="flex min-h-dvh flex-col">
-      <Header />
+    <div className="flex flex-col">
       <main className="mx-auto mt-16 max-w-md px-4 text-center" data-testid="admin-notice">
         <EmptyHero title={title}>{children}</EmptyHero>
       </main>
@@ -47,11 +34,11 @@ export default function AdminPortal() {
   const s = useCloudSession();
   if (!s) return <Notice title="Cloud backend not configured">The admin portal manages the school&apos;s shared cloud workspace. Set <code>NEXT_PUBLIC_CONVEX_URL</code> to enable it.</Notice>;
   if (s.isLoading || (s.isAuthenticated && s.orgs === undefined)) return <Notice title="Loading…">Checking your access.</Notice>;
-  if (!s.isAuthenticated) return <Notice title="Sign in required">Use the Cloud button above to sign in with your institutional Google account.</Notice>;
+  if (!s.isAuthenticated) return <Notice title="Sign in required">Use the Sign in button at the top right with your @usa.edu.ph Google account.</Notice>;
   const orgId = s.selection.orgId;
   const role = (s.orgs?.find((o) => o._id === orgId)?.role ?? null) as Role | null;
-  if (!orgId) return <Notice title="Choose a school">Pick your school from the Cloud menu above.</Notice>;
-  if (!isAdmin(role)) return <Notice title="Admins only">This area is for EdTech staff, supervisors and deans. Your role in this school is <b>{role ?? "none"}</b>; ask an admin if you need access.</Notice>;
+  if (!orgId) return <Notice title="Setting up your workspace">Joining the University of San Agustin workspace…</Notice>;
+  if (!isAdmin(role)) return <Notice title="Admins only">This area is for EdTech staff, supervisors and deans. Your role in this workspace is <b>{role ?? "none"}</b>; ask an admin if you need access.</Notice>;
   return <Portal orgId={orgId} myUserId={s.me!._id} role={role!} />;
 }
 
@@ -59,9 +46,8 @@ function Portal({ orgId, myUserId, role }: { orgId: Id<"orgs">; myUserId: Id<"us
   const [tab, setTab] = useState<Tab>("faculty");
   const tabs: [Tab, string][] = [["faculty", "Faculty"], ["syllabi", "Syllabi"], ["audit", "Audit trail"], ["policy", "Policy & grading"]];
   return (
-    <div className="flex min-h-dvh flex-col">
-      <Header />
-      <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-2 text-sm dark:border-zinc-800">
+    <div className="flex flex-col">
+      <div role="toolbar" aria-label="Admin sections" data-testid="page-toolbar" className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-2 text-sm dark:border-zinc-800">
         <div className="flex gap-1" role="tablist">
           {tabs.map(([t, label]) => (
             <button key={t} role="tab" type="button" aria-selected={tab === t} onClick={() => setTab(t)}

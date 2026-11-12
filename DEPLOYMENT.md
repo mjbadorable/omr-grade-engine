@@ -31,6 +31,7 @@ Dashboard → your project → **Production** deployment → *Settings → Envir
 | `OMR_AUTH_PROVIDERS` | `[{"domain":"https://clerk.<your-domain>","applicationID":"convex"}]` | Clerk only. See "Production guardrail" below. |
 | `OMR_ENV` | `production` | Makes the guardrail explicit (it also fails closed without it). |
 | `OMR_ALLOWED_EMAIL_DOMAINS` | `usa.edu.ph` | Default; comma-separate to add a staging domain. Matches exactly: sub-domains are refused. |
+| `OMR_AUTO_JOIN` | `teacher` | Role given automatically to a verified `@usa.edu.ph` account the first time it opens VERITAS: `teacher` (default), `viewer`, or `off` (admins add people by hand). VERITAS is single-institution: the workspace “University of San Agustin • Iloilo City” is created and joined automatically, there is no school picker. |
 | `DEFAULT_ADMIN_EMAILS` | `dean@usa.edu.ph,edtech@usa.edu.ph` | Comma/space separated. These people become **admin of every school** on sign-in (and of schools created later), so someone can open `/admin` on day one. Never demotes an owner. |
 
 Then create a **production deploy key** (*Settings → URL & Deploy Key → Generate Production Deploy Key*). You will paste it into Vercel as `CONVEX_DEPLOY_KEY`.
@@ -74,11 +75,11 @@ A **cloud development** deployment that uses dev tokens must say so: `node scrip
 ## 4. Smoke test (10 minutes, a real faculty account)
 
 - [ ] `https://<app>/designer` loads while signed out (local-first works).
-- [ ] Cloud → *Continue with Google* with a **non**-`@usa.edu.ph` account is refused with a clear message.
-- [ ] Sign in with a `@usa.edu.ph` account; the Cloud button turns green after choosing a school.
+- [ ] Top-right **Sign in (@usa.edu.ph)** → Google with a **non**-`@usa.edu.ph` account is refused with a clear message.
+- [ ] Sign in with a `@usa.edu.ph` account: your name, a role badge (Teacher / Admin / Owner) and the avatar appear top right on every page; the active-exam chip says “Synced workspace” once an exam exists.
 - [ ] A `DEFAULT_ADMIN_EMAILS` account sees **Admin** in the nav and can open `/admin`; an ordinary teacher cannot (and `/admin` shows "Admins only").
 - [ ] Drop a real syllabus PDF in `/designer`; the review panel lists POs, COs and 9 modules.
-- [ ] Create the cloud exam, scan 3 sheets on a phone (camera mode), open `/grade`: sheets appear within seconds, the **Outcomes** tab shows CO cards.
+- [ ] Design a sheet and print it (or open Scan): it is saved to the workspace automatically and stays the active exam. Scan 3 sheets on a phone (camera mode), open `/grade`: sheets appear within seconds, the **Outcomes** tab shows CO cards.
 - [ ] Toggle airplane mode, edit an answer key and correct one answer: the header badge reads **Saved Offline · Queued for Sync (2)**; turn it off: **All Changes Synced** and the edits are on the server.
 - [ ] Convex dashboard → Logs shows no `[omr-auth] Blocked` lines (if it does, remove the offending provider from `OMR_AUTH_PROVIDERS`).
 

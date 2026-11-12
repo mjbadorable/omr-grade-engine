@@ -10,7 +10,9 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { ScanSubmitResult } from "../../../convex/grading";
 import { setDevToken } from "@/lib/cloud/dev-auth";
+import { DEFAULT_ORG_NAME } from "@/lib/institution";
 import { type OMRTemplate, OMRTemplateSchema } from "@/lib/omr/schema";
+import type { Role } from "@/lib/roles/policy";
 import type { SyllabusPlan } from "@/lib/syllabus/plan-store";
 import type { ScanOutput } from "@/lib/vision/scan-sheet";
 
@@ -30,16 +32,15 @@ export interface CloudSessionValue {
   signInDev: (token: string) => void;
   signOut: () => void;
   orgs: { _id: Id<"orgs">; name: string; role: string }[] | undefined;
-  exams: { _id: Id<"exams">; name: string; layoutHash: string; status: string; currentKeyVersion: number }[] | undefined;
+  /** the single institutional workspace (provisioned and joined automatically); role null = not (yet) a member */
+  workspace: { orgId: Id<"orgs"> | null; name: string; role: Role | null; ready: boolean };
+  exams: { _id: Id<"exams">; name: string; layoutHash: string; status: string; currentKeyVersion: number; examPeriod?: string | null; syllabusId?: Id<"syllabi"> | null }[] | undefined;
   selection: Selection;
-  selectOrg: (orgId: Id<"orgs"> | null) => void;
   selectExam: (examId: Id<"exams"> | null) => void;
   /** template of the selected exam (validated), undefined while loading */
   examTemplate: OMRTemplate | null | undefined;
-  createOrg: (name: string) => Promise<Id<"orgs">>;
   /** with a syllabus plan the exam is bound to the (saved or updated) syllabus and its TOS outcome codes */
   createExam: (name: string, template: OMRTemplate, plan?: SyllabusPlan | null) => Promise<Id<"exams">>;
-  addTeacher: (email: string, role: "teacher" | "admin" | "viewer") => Promise<void>;
   /** upload one scanned sheet (+ de-warped preview) to the selected exam */
   uploadScan: (s: { sheetId: string; result: ScanOutput; preview: Blob | null }) => Promise<ScanSubmitResult | null>;
   /** scans waiting in the outbox (kept for the existing queued-uploads badge) */
@@ -83,15 +84,29 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
     return p.success ? p.data : null;
   }, [examDoc, selection.examId]);
 
-  // forget a selection that no longer exists / is no longer accessible
+  // Single institution: join (and if needed create) the USA workspace once, then bind to it.
+  const ensureDefaultM = useMutation(api.orgs.ensureDefault);
+  const ensuring = useRef(false);
+  const defaultOrg = orgs?.find((o) => o.name === DEFAULT_ORG_NAME) ?? null;
   useEffect(() => {
-    if (orgs && selection.orgId && !orgs.some((o) => o._id === selection.orgId)) persist({ orgId: null, examId: null, layoutHash: null });
-  }, [orgs, selection.orgId]);
+    if (!ready) { ensuring.current = false; return; }
+    if (orgs === undefined) return;
+    if (!defaultOrg && !ensuring.current) {
+      ensuring.current = true;
+      ensureDefaultM({}).catch(() => { ensuring.current = false; });
+    }
+  }, [ready, orgs, defaultOrg, ensureDefaultM]);
+  useEffect(() => {
+    if (!defaultOrg) return;
+    if (selection.orgId !== defaultOrg._id) persist({ orgId: defaultOrg._id, examId: null, layoutHash: null });
+  }, [defaultOrg, selection.orgId]);
+  // a stored exam from another workspace (older builds let people create schools) is forgotten
+  useEffect(() => {
+    if (exams && selection.examId && !exams.some((e) => e._id === selection.examId)) persist({ ...selection, examId: null, layoutHash: null });
+  }, [exams, selection.examId]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const createOrgM = useMutation(api.orgs.create);
   const createExamM = useMutation(api.exams.create);
   const upsertSyllabusM = useMutation(api.syllabi.upsert);
-  const addMemberM = useMutation(api.orgs.addMember);
   const sync = useCloudOutbox(ready);
 
   // Queue, then try to send. Resolves with the server's verdict, or null while the scan is only queued.
@@ -118,9 +133,8 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
     authMode, isLoading, isAuthenticated, me, access,
     signInDev: (t) => setDevToken(t), signOut: () => setDevToken(null),
     orgs, exams, selection, examTemplate,
-    selectOrg: (orgId) => persist({ orgId, examId: null, layoutHash: null }),
+    workspace: { orgId: defaultOrg?._id ?? null, name: DEFAULT_ORG_NAME, role: (defaultOrg?.role as Role | undefined) ?? null, ready: !!defaultOrg },
     selectExam: (examId) => persist({ ...selection, examId, layoutHash: exams?.find((e) => e._id === examId)?.layoutHash ?? null }),
-    createOrg: async (name) => { const id = await createOrgM({ name }); persist({ orgId: id, examId: null, layoutHash: null }); return id; },
     createExam: async (name, template, plan) => {
       const orgId = selection.orgId!;
       const usePlan = plan && plan.tos.totalQuestions === template.questionCount ? plan : null;
@@ -129,7 +143,6 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
       persist({ ...selection, examId: id, layoutHash: template.layoutHash });
       return id;
     },
-    addTeacher: async (email, role) => { await addMemberM({ orgId: selection.orgId!, email, role }); },
     uploadScan, pendingUploads: sync.pendingOps.filter((o) => o.kind === "UPLOAD_SCAN").length, sync,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

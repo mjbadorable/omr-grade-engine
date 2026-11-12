@@ -149,7 +149,7 @@ export default function SettingsPanel({ settings, onChange }: { settings: Layout
     <div className="space-y-6">
       <section className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Sheet</h2>
-        <Field label="Title">{(id) => <input id={id} className={inputCls} value={settings.title} maxLength={80} onChange={(e) => set("title", e.target.value)} />}</Field>
+        <Field label="Exam name (printed title)">{(id) => <input id={id} className={inputCls} value={settings.title} maxLength={80} onChange={(e) => set("title", e.target.value)} />}</Field>
         <Field label="Subtitle">{(id) => <input id={id} className={inputCls} value={settings.subtitle} maxLength={80} onChange={(e) => set("subtitle", e.target.value)} />}</Field>
         <div className="grid grid-cols-2 gap-2">
           <Field label="Paper">{(id) => (

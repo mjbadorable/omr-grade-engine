@@ -3,7 +3,8 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { emailAllowedByPolicy } from "../src/lib/admin/formula";
 import { checkRoleChange } from "../src/lib/roles/policy";
-import { ensureDefaultAdmin, fail, logAudit, requireRole, requireUser } from "./lib/access";
+import { DEFAULT_ORG_NAME } from "../src/lib/institution";
+import { autoJoinRole, defaultAdminEmails, ensureDefaultAdmin, fail, logAudit, requireRole, requireUser } from "./lib/access";
 import { role } from "./validators";
 
 export const create = mutation({
@@ -56,5 +57,41 @@ export const addMember = mutation({
     }
     await logAudit(ctx, orgId, actor._id, "ROLE_CHANGE", `${user.email} added as ${r}`);
     return ctx.db.insert("memberships", { orgId, userId: user._id, role: r });
+  },
+});
+
+/**
+ * Single-institution workspace: find or create "University of San Agustin • Iloilo City" and make
+ * sure the caller belongs to it, so faculty never pick or create a school. The caller joins with
+ * the OMR_AUTO_JOIN role (default teacher; "off" = admins add people by hand). DEFAULT_ADMIN_EMAILS
+ * users become admin, and the first of them to arrive owns a brand-new workspace. Idempotent.
+ */
+export const ensureDefault = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    let org = await ctx.db.query("orgs").withIndex("by_name", (q) => q.eq("name", DEFAULT_ORG_NAME)).first();
+    let created = false;
+    if (!org) {
+      const id = await ctx.db.insert("orgs", { name: DEFAULT_ORG_NAME, createdBy: user._id });
+      org = (await ctx.db.get(id))!;
+      created = true;
+      for (const u of await ctx.db.query("users").take(2000)) if (u._id !== user._id) await ensureDefaultAdmin(ctx, id, u);
+    }
+    const find = () => ctx.db.query("memberships").withIndex("by_org_user", (q) => q.eq("orgId", org!._id).eq("userId", user._id)).unique();
+    let m = await find();
+    if (!m && created && defaultAdminEmails().includes(user.email ?? "")) {
+      await ctx.db.insert("memberships", { orgId: org._id, userId: user._id, role: "owner" });
+      m = await find();
+    }
+    if (!m) { await ensureDefaultAdmin(ctx, org._id, user); m = await find(); }
+    if (!m) {
+      const role = autoJoinRole();
+      if (role === "off") return { orgId: org._id, role: null };
+      await ctx.db.insert("memberships", { orgId: org._id, userId: user._id, role });
+      await logAudit(ctx, org._id, user._id, "ROLE_CHANGE", `${user.email ?? "user"} joined as ${role} (automatic institutional membership)`);
+      m = await find();
+    }
+    return { orgId: org._id, role: m?.role ?? null };
   },
 });

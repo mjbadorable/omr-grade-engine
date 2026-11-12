@@ -8,6 +8,7 @@
 import type { UserIdentity } from "convex/server";
 import { ConvexError } from "convex/values";
 import { checkInstitutionalEmail, parseDomainList } from "../../src/lib/cloud/allowlist";
+import { parseAutoJoin } from "../../src/lib/institution";
 import { isDefaultAdmin, parseAdminEmails } from "../../src/lib/roles/bootstrap";
 import { devIdentityBlocked } from "../../src/lib/cloud/auth-guard";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -89,3 +90,5 @@ export async function ensureDefaultAdmin(ctx: MutationCtx, orgId: Id<"orgs">, us
   await logAudit(ctx, orgId, user._id, "ROLE_CHANGE", `${user.email} granted admin by DEFAULT_ADMIN_EMAILS`);
   return true;
 }
+
+export const autoJoinRole = () => parseAutoJoin(process.env.OMR_AUTO_JOIN);

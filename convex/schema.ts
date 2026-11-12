@@ -20,7 +20,7 @@ export default defineSchema({
   orgs: defineTable({
     name: v.string(),
     createdBy: v.id("users"),
-  }),
+  }).index("by_name", ["name"]),
 
   memberships: defineTable({
     orgId: v.id("orgs"),

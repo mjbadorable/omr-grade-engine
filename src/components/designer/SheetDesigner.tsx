@@ -1,8 +1,7 @@
 "use client";
 
-import AppNav from "@/components/AppNav";
-import Brand from "@/components/brand/Brand";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { SHEET_PRINTED_EVENT, TEMPLATE_CHANGED_EVENT } from "@/lib/active-exam";
 import { computeLayout, type LayoutResult } from "@/lib/omr/layout-engine";
 import { DEFAULT_SETTINGS, PRESETS } from "@/lib/omr/presets";
 import { writeStoredTemplate } from "@/lib/storage/template-store";
@@ -26,7 +25,10 @@ function download(name: string, data: BlobPart, type: string) {
 const btn = "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40";
 
 export default function SheetDesigner() {
-  const [settings, setSettings] = useState<LayoutSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettingsRaw] = useState<LayoutSettings>(DEFAULT_SETTINGS);
+  // user edits (not the random id assigned after hydration) mean "a new exam is being designed"
+  const edited = useRef(false);
+  const setSettings: typeof setSettingsRaw = (v) => { edited.current = true; setSettingsRaw(v); };
   const [pageIndex, setPageIndex] = useState(0);
   const [overlays, setOverlays] = useState<PreviewOverlays>({ cells: false, bboxes: false });
   const [drawer, setDrawer] = useState<null | "json" | "issues">(null);
@@ -34,7 +36,7 @@ export default function SheetDesigner() {
 
   // Stable random template id, assigned after hydration (keeps SSR output deterministic).
   useEffect(() => {
-    setSettings((s) => (s.templateId === "tpl-draft" ? { ...s, templateId: `tpl-${crypto.randomUUID().slice(0, 8)}` } : s));
+    setSettingsRaw((s) => (s.templateId === "tpl-draft" ? { ...s, templateId: `tpl-${crypto.randomUUID().slice(0, 8)}` } : s));
   }, []);
 
   const deferred = useDeferredValue(settings);
@@ -59,6 +61,8 @@ export default function SheetDesigner() {
   useEffect(() => {
     if (!canExport || !result) return;
     writeStoredTemplate(result.template);
+    window.dispatchEvent(new Event(TEMPLATE_CHANGED_EVENT));
+    if (edited.current) window.dispatchEvent(new Event("veritas:design-edited"));
   }, [canExport, result]);
 
   const [kitBusy, setKitBusy] = useState(false);
@@ -79,16 +83,15 @@ export default function SheetDesigner() {
       const { generatePdf } = await import("@/lib/omr/pdf-generator");
       const bytes = await generatePdf(result.template);
       download(`${result.template.templateId}-v${result.template.version}.pdf`, bytes as BlobPart, "application/pdf");
+      window.dispatchEvent(new CustomEvent(SHEET_PRINTED_EVENT, { detail: result.template.layoutHash }));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <div className="flex h-dvh flex-col">
-      <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-200 bg-white px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950">
-        <Brand page="Sheet Designer" />
-        <AppNav />
+    <div className="flex flex-col" style={{ height: "calc(100dvh - var(--app-header-h, 56px))" }}>
+      <div role="toolbar" aria-label="Sheet actions" data-testid="page-toolbar" className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-200 bg-zinc-50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900/40">
         <select aria-label="Load preset" className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
           value="" onChange={(e) => {
             const p = PRESETS.find((x) => x.id === e.target.value);
@@ -115,14 +118,14 @@ export default function SheetDesigner() {
             {"{ }"} Inspect JSON
           </button>
           <button type="button" disabled={!canExport} className={`${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}
-            onClick={() => result && download(`template-coordinates.json`, JSON.stringify(result.template, null, 2), "application/json")}>
+            onClick={() => { if (!result) return; download(`template-coordinates.json`, JSON.stringify(result.template, null, 2), "application/json"); window.dispatchEvent(new CustomEvent(SHEET_PRINTED_EVENT, { detail: result.template.layoutHash })); }}>
             Download JSON
           </button>
           <button type="button" disabled={!canExport || busy} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`} onClick={exportPdf}>
             {busy ? "Generating…" : "Download PDF"}
           </button>
         </div>
-      </header>
+      </div>
 
       <HeroStrip />
       <SyllabusDropzone settings={settings} onConfigure={(next) => { setSettings(next); setPageIndex(0); }} />

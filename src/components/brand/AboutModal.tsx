@@ -10,18 +10,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { OPEN_ABOUT_EVENT, readAck, writeAck } from "@/lib/acknowledgment";
 import { ACK_ACCEPTED_EVENT } from "@/lib/tutorial-state";
 import { BRAND } from "@/lib/brand";
+import { BrandLockup } from "./Brand";
 
-const BODY = "This platform is an official project of the University of San Agustin — Educational Technology Office (EdTech) in partnership with the Center for Information and Communications Technology (CICT), developed for faculty to streamline optical mark recognition (OMR) exam grading and Outcomes-Based Education (OBE) analytics.";
+const BODY = "Built for Augustinian educators to make exam checking effortless. Design ZipGrade-style answer sheets, scan papers instantly with your phone camera, and generate Outcomes-Based Education (OBE) item analysis in seconds.";
 
-/** Circular crest: gold ring, light plate so the logos read the same in light and dark mode. */
-function Crest({ src, alt, size, label }: { src: string; alt: string; size: string; label: string }) {
+/** Small credit crest: gold-ringed circle on a light plate so it reads in light and dark mode. */
+function MiniCrest({ src, alt }: { src: string; alt: string }) {
   return (
-    <figure className="flex flex-col items-center gap-1.5">
-      <div className={`${size} shrink-0 overflow-hidden rounded-full bg-white p-[9%] shadow-sm ring-2 ring-gold ring-offset-2 ring-offset-white dark:ring-offset-zinc-950`}>
-        <Image src={src} alt={alt} width={300} height={300} unoptimized className="size-full object-contain" priority />
-      </div>
-      <figcaption className="text-center text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{label}</figcaption>
-    </figure>
+    <div className="size-11 shrink-0 overflow-hidden rounded-full bg-white p-[7%] shadow-sm ring-1 ring-gold/70 sm:size-12">
+      <Image src={src} alt={alt} width={96} height={96} unoptimized className="size-full object-contain" />
+    </div>
   );
 }
 
@@ -77,28 +75,30 @@ export default function AboutModal() {
       {!locked && (
         <button type="button" onClick={close} aria-label="Close" className="absolute right-3 top-4 rounded-md px-2 py-1 text-lg leading-none text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800">×</button>
       )}
-      <div className="space-y-5 px-5 pb-6 pt-5 sm:px-8">
-        <div className="flex items-end justify-center gap-3 sm:gap-5" role="group" aria-label="Institutional partners">
-          <Crest src="/logos/edtech-logo.png" alt="Educational Technology and E-Learning Support Services logo" size="size-[4.75rem] sm:size-24" label="EdTech" />
-          <Crest src="/logos/usa-logo.png" alt="University of San Agustin seal" size="size-[6.5rem] sm:size-32" label="USA" />
-          <Crest src="/logos/cict-logo.png" alt="Center for Information and Communications Technology logo" size="size-[4.75rem] sm:size-24" label="CICT" />
-        </div>
+      <div className="space-y-5 px-5 pb-6 pt-6 sm:px-8">
+        <div className="flex justify-center"><BrandLockup className="h-12 sm:h-14" /></div>
 
         <div className="text-center">
-          <p className="mx-auto inline-block whitespace-nowrap rounded-full border border-gold/40 bg-gold-tint px-3 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] sm:text-[10px] sm:tracking-[0.14em] text-gold-hover dark:text-gold">University of San Agustin • Iloilo City</p>
+          <p className="mx-auto inline-block whitespace-nowrap rounded-full border border-gold/40 bg-gold-tint px-3 py-1 text-[9px] font-semibold uppercase tracking-[0.08em] text-gold-hover sm:text-[10px] sm:tracking-[0.14em] dark:text-gold">University of San Agustin • Iloilo City</p>
           <h2 id="about-title" className="mt-3 text-2xl font-bold tracking-tight">Welcome to <span className="tracking-[0.1em] text-indigo-600">{BRAND.name}</span></h2>
           <p className="mt-1 text-sm font-medium text-zinc-600 dark:text-zinc-400">{BRAND.expansion}</p>
         </div>
 
-        <p id="about-body" className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">{BODY}</p>
+        <p id="about-body" className="text-center text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">{BODY}</p>
 
-        <div className="space-y-2">
-          <button type="button" autoFocus onClick={understand} data-testid="ack-button"
-            className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold">
-            {locked ? "I Understand" : "I Understand · Close"}
-          </button>
-          <p className="text-center text-[11px] text-zinc-500">{BRAND.tagline}</p>
+        <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900/50" data-testid="credits-strip">
+          <div className="flex shrink-0 -space-x-2" role="group" aria-label="Institutional partners">
+            <MiniCrest src="/logos/edtech-logo.png" alt="Educational Technology and E-Learning Support Services logo" />
+            <MiniCrest src="/logos/usa-logo.png" alt="University of San Agustin seal" />
+            <MiniCrest src="/logos/cict-logo.png" alt="Center for Information and Communications Technology logo" />
+          </div>
+          <p className="text-[11px] leading-snug text-zinc-600 dark:text-zinc-400">A project of the <b>Educational Technology Office (EdTech)</b> &amp; <b>Center for Information and Communications Technology (CICT)</b>.</p>
         </div>
+
+        <button type="button" autoFocus onClick={locked ? understand : close} data-testid="ack-button"
+          className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold">
+          Proceed →
+        </button>
       </div>
     </dialog>
   );

@@ -5,6 +5,7 @@ import AboutModal from "@/components/brand/AboutModal";
 import TutorialModal from "@/components/brand/TutorialModal";
 import { THEME_INIT_SCRIPT } from "@/components/brand/ThemeToggle";
 import { BRAND } from "@/lib/brand";
+import AppHeader from "@/components/shell/AppHeader";
 import ConvexClientProvider from "./ConvexClientProvider";
 
 const description = `${BRAND.expansion}. ${BRAND.tagline}`;
@@ -26,7 +27,7 @@ export const viewport: Viewport = {
 const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const app = <ConvexClientProvider>{children}</ConvexClientProvider>;
+  const app = <ConvexClientProvider><AppHeader />{children}</ConvexClientProvider>;
   return (
     <html lang="en" suppressHydrationWarning>
       <head><script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} /></head>

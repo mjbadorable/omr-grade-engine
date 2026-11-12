@@ -1,28 +1,29 @@
+import Image from "next/image";
 import Link from "next/link";
 import { BRAND } from "@/lib/brand";
 
-/** App mark: crimson tile, white V (verified tick), gold bubble. */
+/** App mark: the VERITAS squircle (white ribbon V, gold dot). */
 export function BrandMark({ className = "size-7" }: { className?: string }) {
+  return <Image src="/logos/veritas-mark.png" alt="" width={128} height={128} unoptimized aria-hidden className={`${className} shrink-0 object-contain`} />;
+}
+
+/** Wordmark lockup (mark + VERITAS). Two files swap with the theme so the text stays legible. */
+export function BrandLockup({ className = "h-8" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 64 64" className={className} aria-hidden>
-      <rect width="64" height="64" rx="14" fill="#8E1B20" />
-      <path d="M14 18 32 48 50 18" fill="none" stroke="#fff" strokeWidth="6.5" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx="32" cy="14" r="5" fill="#C89211" />
-    </svg>
+    <>
+      <Image src="/logos/veritas-lockup.png" alt={BRAND.name} width={834} height={195} unoptimized priority className={`${className} w-auto dark:hidden`} />
+      <Image src="/logos/veritas-lockup-dark.png" alt={BRAND.name} width={834} height={195} unoptimized priority className={`${className} hidden w-auto dark:block`} />
+    </>
   );
 }
 
-/** Header lockup: mark + VERITAS + institution badge, with the acronym expansion as tooltip. */
-export default function Brand({ page }: { page?: string }) {
+/** Header lockup: logo + institution badge, with the acronym expansion as tooltip. */
+export default function Brand() {
   return (
-    <h1 className="flex items-center gap-2.5" title={`${BRAND.name}: ${BRAND.expansion}`}>
-      <Link href="/designer" className="flex items-center gap-2" aria-label={`${BRAND.name}, ${BRAND.institution}`}>
-        <BrandMark />
-        <span className="text-[15px] font-bold tracking-[0.14em] text-zinc-900 dark:text-zinc-100">{BRAND.name}</span>
-      </Link>
-      <span className="hidden rounded-full border border-gold/40 bg-gold-tint px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gold-hover sm:inline dark:text-gold" data-testid="brand-badge">{BRAND.badge}</span>
-      {page && <span className="text-sm font-medium text-zinc-500">{page}</span>}
-    </h1>
+    <div className="flex items-center gap-2.5" title={`${BRAND.name}: ${BRAND.expansion}`}>
+      <Link href="/designer" className="flex items-center" aria-label={`${BRAND.name}, ${BRAND.institution}`}><BrandLockup className="h-8" /></Link>
+      <span className="hidden rounded-full border border-gold/40 bg-gold-tint px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gold-hover lg:inline dark:text-gold" data-testid="brand-badge">{BRAND.badge}</span>
+    </div>
   );
 }
 
