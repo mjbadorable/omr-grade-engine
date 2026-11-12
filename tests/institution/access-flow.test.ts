@@ -32,18 +32,19 @@ describe("default is closed", () => {
     expect(await student.mutation(api.orgs.ensureDefault, {})).toEqual({ orgId, role: null });
     expect(await student.query(api.orgs.listMine, {})).toEqual([]);
     expect(await student.query(api.orgs.myAccess, {})).toEqual({ orgId, role: null, request: null });
-    for (const [what, p] of [
-      ["exam list", student.query(api.exams.listByOrg, { orgId })],
-      ["exam", student.query(api.exams.get, { examId })],
-      ["answer key", student.query(api.grading.getAnswerKey, { examId })],
-      ["scans", student.query(api.grading.listScans, { examId, paginationOpts: { numItems: 5, cursor: null } })],
-      ["roster", student.query(api.exams.getRoster, { examId })],
-      ["analytics", student.query(api.grading.getExamAnalytics, { examId })],
-      ["syllabi", student.query(api.syllabi.listByOrg, { orgId })],
-      ["policy", student.query(api.admin.getPolicy, { orgId })],
-      ["key update", student.mutation(api.grading.updateAnswerKey, { examId, baseVersion: 1, key: { questions: {}, sets: {}, defaultSet: null, gradeBands: [], conflictPolicy: "zero" } })],
-      ["create exam", student.mutation(api.exams.create, { orgId, name: "x", template: kit.template })],
-    ] as const) expect(await code(p), what).toBe("FORBIDDEN");
+    // thunks: each call starts only when it is awaited (no unhandled rejections)
+    for (const [what, call] of [
+      ["exam list", () => student.query(api.exams.listByOrg, { orgId })],
+      ["exam", () => student.query(api.exams.get, { examId })],
+      ["answer key", () => student.query(api.grading.getAnswerKey, { examId })],
+      ["scans", () => student.query(api.grading.listScans, { examId, paginationOpts: { numItems: 5, cursor: null } })],
+      ["roster", () => student.query(api.exams.getRoster, { examId })],
+      ["analytics", () => student.query(api.grading.getExamAnalytics, { examId })],
+      ["syllabi", () => student.query(api.syllabi.listByOrg, { orgId })],
+      ["policy", () => student.query(api.admin.getPolicy, { orgId })],
+      ["key update", () => student.mutation(api.grading.updateAnswerKey, { examId, baseVersion: 1, key: { questions: {}, sets: {}, defaultSet: null, gradeBands: [], conflictPolicy: "zero" } })],
+      ["create exam", () => student.mutation(api.exams.create, { orgId, name: "x", template: kit.template })],
+    ] as const) expect(await code(call()), what).toBe("FORBIDDEN");
   });
 });
 
