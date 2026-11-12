@@ -57,7 +57,7 @@ A **cloud development** deployment that uses dev tokens must say so: `node scrip
 ## 3. Vercel
 
 1. Import the GitHub repo (`mjbadorable/omr-grade-engine`), framework **Next.js**.
-2. *Settings → Build & Development*: **Build Command** `npx convex deploy --cmd 'npm run build'` (also set in `vercel.json`). Install command and output directory stay default.
+2. *Settings → Build & Development*: **Build Command** `npx convex deploy --cmd 'npm run build'` (also set in `vercel.json`; builds without `CONVEX_DEPLOY_KEY`, such as previews, fall back to a plain `npm run build` and run local-first). Install command and output directory stay default.
 3. *Settings → Environment Variables*:
 
 | Variable | Environments | Value |
