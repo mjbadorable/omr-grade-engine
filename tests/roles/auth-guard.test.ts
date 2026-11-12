@@ -79,6 +79,7 @@ describe("DEFAULT_ADMIN_EMAILS", () => {
   afterEach(() => { delete process.env.DEFAULT_ADMIN_EMAILS; });
   it("parses lists", () => {
     expect(parseAdminEmails(" Dean@usa.edu.ph, staff@usa.edu.ph;bad, dean@usa.edu.ph ")).toEqual(["dean@usa.edu.ph", "staff@usa.edu.ph"]);
+    expect(parseAdminEmails('["Dean@usa.edu.ph", "staff@usa.edu.ph"]')).toEqual(["dean@usa.edu.ph", "staff@usa.edu.ph"]);
     expect(isDefaultAdmin("DEAN@usa.edu.ph", ["dean@usa.edu.ph"])).toBe(true);
     expect(isDefaultAdmin(null, ["dean@usa.edu.ph"])).toBe(false);
   });

@@ -5,6 +5,7 @@
  * far, and the list can only raise a role to admin (never demote, never touch an owner).
  */
 export function parseAdminEmails(raw: string | undefined | null): string[] {
-  return [...new Set((raw ?? "").split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)))];
+  // also accepts a JSON array ('["a@usa.edu.ph","b@usa.edu.ph"]'): quotes and brackets are stripped
+  return [...new Set((raw ?? "").replace(/[\[\]"']/g, " ").split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)))];
 }
 export const isDefaultAdmin = (email: string | null | undefined, list: readonly string[]) => !!email && list.includes(email.trim().toLowerCase());
