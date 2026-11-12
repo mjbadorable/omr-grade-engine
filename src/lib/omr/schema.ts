@@ -226,7 +226,7 @@ export const McqSectionSettingsSchema = z.object({
   name: z.string().max(40),
   type: z.literal("mcq"),
   questionCount: z.number().int().min(1).max(200),
-  optionCount: z.number().int().min(2).max(10),
+  optionCount: z.number().int().min(2).max(6),
   optionStyle: z.enum(["letters", "numbers", "true-false"]),
 });
 export const NumericSectionSettingsSchema = z.object({

@@ -82,7 +82,7 @@ describe("layout rules", () => {
   });
 
   it("reports columns that are too narrow", () => {
-    const res = computeLayout(settingsOf("mcq-100", { columns: 6, bubbleDiameterMm: 6, sections: [{ id: "s", name: "", type: "mcq", questionCount: 20, optionCount: 10, optionStyle: "letters" }] }));
+    const res = computeLayout(settingsOf("mcq-100", { columns: 6, bubbleDiameterMm: 6, sections: [{ id: "s", name: "", type: "numeric", questionCount: 4, digits: 8, hasSign: true, hasDecimal: true }] }));
     expect(res.issues.some((i) => i.code === "COLUMN_TOO_NARROW")).toBe(true);
   });
 

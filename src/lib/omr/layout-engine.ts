@@ -29,6 +29,7 @@ import {
   TEMPLATE_SCHEMA_ID,
   type TextItem,
 } from "./schema";
+import { normalizeSettings } from "./columns";
 import { canonicalJson, sha256Hex } from "./sha256";
 
 export const LAYOUT_CONSTANTS = {
@@ -390,9 +391,13 @@ function colWidthOf(s: LayoutSettings, g: Geometry) {
 
 // ------------------------------------------------------------------ main entry
 export function computeLayout(input: LayoutSettings): LayoutResult {
-  const s = LayoutSettingsSchema.parse(input);
+  // supported range: 2–6 options per question, and only as many columns as fit without touching
+  const clamped = Array.isArray(input?.sections) ? normalizeSettings(input) : input;
+  const s = LayoutSettingsSchema.parse(clamped);
+  const columnsReduced = clamped !== input && clamped.columns !== input.columns;
   const g = buildGeometry(s);
   const issues: LayoutIssue[] = [];
+  if (columnsReduced) issues.push({ severity: "warning", code: "COLUMNS_REDUCED", message: `Answer columns reduced from ${input.columns} to ${s.columns}: with this many answer choices more columns would touch.` });
 
   const maxQ = s.sections.reduce((n, x) => n + x.questionCount, 0);
   const numFont = r3(Math.min(2.6, g.p * 0.48));
@@ -580,6 +585,18 @@ export function validateTemplate(t: OMRTemplate): LayoutIssue[] {
     for (const i of ink) {
       if (seen.has(i.id)) issues.push({ severity: "error", code: "DUPLICATE_ID", page: page.index, message: `Duplicate element id ${i.id}`, ids: [i.id] });
       seen.add(i.id);
+    }
+
+    // answer columns must never touch horizontally: regions of different columns that share rows need a clear gap
+    const COLUMN_GAP_MM = 1.5;
+    const blocks = page.regions.filter((r) => r.kind === "mcq" || r.kind === "numeric" || r.kind === "matrix");
+    for (let a = 0; a < blocks.length; a++) for (let b = a + 1; b < blocks.length; b++) {
+      const A = blocks[a].bbox, B = blocks[b].bbox;
+      const sharesRows = A.y < B.y + B.h - EPS && B.y < A.y + A.h - EPS;
+      const gap = Math.max(B.x - (A.x + A.w), A.x - (B.x + B.w));
+      if (sharesRows && gap < COLUMN_GAP_MM - EPS) {
+        issues.push({ severity: "error", code: "COLUMN_OVERLAP", page: page.index, message: `Answer columns ${blocks[a].id} and ${blocks[b].id} ${gap < 0 ? "overlap" : "touch"} horizontally. Use fewer columns or fewer answer choices.`, ids: [blocks[a].id, blocks[b].id] });
+      }
     }
 
     // printable area

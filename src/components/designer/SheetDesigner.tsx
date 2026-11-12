@@ -2,6 +2,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { SHEET_PRINTED_EVENT, TEMPLATE_CHANGED_EVENT } from "@/lib/active-exam";
+import { normalizeSettings } from "@/lib/omr/columns";
 import { sheetSummary } from "@/lib/omr/summary";
 import { computeLayout, type LayoutResult } from "@/lib/omr/layout-engine";
 import { DEFAULT_SETTINGS } from "@/lib/omr/presets";
@@ -29,7 +30,8 @@ export default function SheetDesigner() {
   const [settings, setSettingsRaw] = useState<LayoutSettings>(DEFAULT_SETTINGS);
   // user edits (not the random id assigned after hydration) mean "a new exam is being designed"
   const edited = useRef(false);
-  const setSettings: typeof setSettingsRaw = (v) => { edited.current = true; setSettingsRaw(v); };
+  // every edit is brought into the supported range (2–6 choices, columns that fit) before it renders
+  const setSettings: typeof setSettingsRaw = (v) => { edited.current = true; setSettingsRaw(typeof v === "function" ? (cur) => normalizeSettings(v(cur)) : normalizeSettings(v)); };
   const [pageIndex, setPageIndex] = useState(0);
   const [overlays, setOverlays] = useState<PreviewOverlays>({ cells: false, bboxes: false });
   const [drawer, setDrawer] = useState<null | "json" | "issues">(null);

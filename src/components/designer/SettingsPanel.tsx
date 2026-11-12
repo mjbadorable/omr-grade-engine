@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { columnBlockedReason, normalizeSettings } from "@/lib/omr/columns";
 import type { LayoutSettings, SectionSettings } from "@/lib/omr/schema";
 
 const inputCls =
@@ -69,6 +70,11 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
 /** standard exam lengths (only those within the section type's limit are shown) */
 const QUICK_COUNTS = [20, 30, 50, 60, 100] as const;
 
+/** Supported answer-choice counts: more than 6 would not fit a page legibly. */
+const CHOICE_OPTIONS = [
+  { n: 2, label: "2 (T/F or A–B)" }, { n: 3, label: "3 (A–C)" }, { n: 4, label: "4 (A–D)" }, { n: 5, label: "5 (A–E)" }, { n: 6, label: "6 (A–F)" },
+] as const;
+
 let sectionSeq = 0;
 const newSectionId = () => `s${Date.now().toString(36)}${(sectionSeq++).toString(36)}`;
 
@@ -105,7 +111,7 @@ function SectionCard({ section, index, total, onChange, onRemove, onMove }: {
             <Field label="Answer choices">{(id) => (
               <select id={id} className={inputCls} value={section.optionStyle === "true-false" ? 2 : section.optionCount}
                 onChange={(e) => onChange({ ...section, optionCount: Number(e.target.value), optionStyle: section.optionStyle === "true-false" ? "letters" : section.optionStyle })}>
-                {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => <option key={n} value={n}>{`${n} (A–${String.fromCharCode(64 + n)})`}</option>)}
+                {CHOICE_OPTIONS.map((o) => <option key={o.n} value={o.n}>{o.label}</option>)}
               </select>
             )}</Field>
             <div className="col-span-2">
@@ -144,7 +150,7 @@ function SectionCard({ section, index, total, onChange, onRemove, onMove }: {
 }
 
 export default function SettingsPanel({ settings, onChange }: { settings: LayoutSettings; onChange: (s: LayoutSettings) => void }) {
-  const set = <K extends keyof LayoutSettings>(k: K, v: LayoutSettings[K]) => onChange({ ...settings, [k]: v });
+  const set = <K extends keyof LayoutSettings>(k: K, v: LayoutSettings[K]) => onChange(normalizeSettings({ ...settings, [k]: v }));
   const setSection = (i: number, sec: SectionSettings) => set("sections", settings.sections.map((s, j) => (j === i ? sec : s)));
 
   return (
@@ -203,7 +209,11 @@ export default function SettingsPanel({ settings, onChange }: { settings: Layout
       <details className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800" data-testid="advanced-layout">
         <summary className="cursor-pointer text-sm font-medium">Advanced Layout Settings</summary>
         <div className="mt-3 space-y-3">
-          <Field label="Answer columns">{(id) => <NumberInput id={id} value={settings.columns} min={1} max={6} onChange={(v) => set("columns", v)} />}</Field>
+          <Field label="Answer columns" hint="More choices per question need wider columns, so fewer fit side by side.">{(id) => (
+            <select id={id} className={inputCls} value={settings.columns} onChange={(e) => set("columns", Number(e.target.value))}>
+              {[1, 2, 3, 4, 5, 6].map((n) => { const why = columnBlockedReason(settings, n); return <option key={n} value={n} disabled={!!why}>{n}{why ? ` (${why})` : ""}</option>; })}
+            </select>
+          )}</Field>
           <Field label={`Bubble size · ${settings.bubbleDiameterMm.toFixed(1)} mm`}>
             {(id) => (
               <input id={id} type="range" min={3.2} max={6} step={0.1} className="w-full accent-indigo-600" value={settings.bubbleDiameterMm}
