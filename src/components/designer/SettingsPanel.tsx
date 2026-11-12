@@ -1,6 +1,6 @@
 "use client";
 
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import type { LayoutSettings, SectionSettings } from "@/lib/omr/schema";
 
 const inputCls =
@@ -18,14 +18,42 @@ function Field({ label, children, hint }: { label: string; children: (id: string
   );
 }
 
-function NumberInput({ value, min, max, step = 1, onChange, id }: { value: number; min: number; max: number; step?: number; onChange: (v: number) => void; id: string }) {
+/** Parse a draft and clamp it into [min, max]; empty / garbage falls back to `min`. */
+export function clampDraft(draft: string, min: number, max: number): number {
+  const n = parseInt(draft, 10);
+  return Math.min(max, Math.max(min, Number.isNaN(n) ? min : n));
+}
+
+/**
+ * Integer input with a local text draft, so the box can be cleared and multi-digit numbers typed
+ * freely. Valid in-range numbers update the preview live; the value is clamped on blur / Enter.
+ */
+function NumberInput({ value, min, max, onChange, id, presets }: { value: number; min: number; max: number; onChange: (v: number) => void; id: string; presets?: readonly number[] }) {
+  const [draft, setDraft] = useState(String(value));
+  // follow external changes (presets, loading a preset layout) unless the draft already means this value
+  useEffect(() => { setDraft((d) => (parseInt(d, 10) === value ? d : String(value))); }, [value]);
+  const commit = () => { const v = clampDraft(draft, min, max); setDraft(String(v)); if (v !== value) onChange(v); };
+  const shown = presets?.filter((p) => p >= min && p <= max);
   return (
-    <input id={id} type="number" inputMode="decimal" className={inputCls} value={value} min={min} max={max} step={step}
-      onChange={(e) => {
-        const v = Number(e.target.value);
-        if (e.target.value === "" || Number.isNaN(v)) return;
-        onChange(Math.min(max, Math.max(min, step < 1 ? Math.round(v / step) * step : Math.round(v))));
-      }} />
+    <>
+      <input id={id} type="number" inputMode="numeric" className={inputCls} value={draft} min={min} max={max} step={1}
+        onFocus={(e) => e.target.select()}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          const n = parseInt(e.target.value, 10);
+          if (!Number.isNaN(n) && n >= min && n <= max) onChange(n);     // live preview only for valid numbers
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") { commit(); e.currentTarget.blur(); } }} />
+      {shown && shown.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1" role="group" aria-label="Quick pick">
+          {shown.map((p) => (
+            <button key={p} type="button" aria-pressed={value === p} onClick={() => { setDraft(String(p)); onChange(p); }}
+              className={`rounded-full border px-2.5 py-0.5 text-xs font-medium transition ${value === p ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300" : "border-zinc-300 text-zinc-600 hover:border-indigo-400 hover:text-indigo-600 dark:border-zinc-700 dark:text-zinc-400"}`}>{p}</button>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -37,6 +65,9 @@ function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: 
     </label>
   );
 }
+
+/** standard exam lengths (only those within the section type's limit are shown) */
+const QUICK_COUNTS = [20, 30, 50, 60, 100] as const;
 
 let sectionSeq = 0;
 const newSectionId = () => `s${Date.now().toString(36)}${(sectionSeq++).toString(36)}`;
@@ -68,7 +99,7 @@ function SectionCard({ section, index, total, onChange, onRemove, onMove }: {
         <div className="col-span-2">
           <Field label="Section name">{(id) => <input id={id} className={inputCls} value={section.name} maxLength={40} placeholder="(optional)" onChange={(e) => onChange({ ...section, name: e.target.value })} />}</Field>
         </div>
-        <Field label="Questions">{(id) => <NumberInput id={id} value={section.questionCount} min={1} max={section.type === "mcq" ? 200 : 20} onChange={(v) => onChange({ ...section, questionCount: v })} />}</Field>
+        <Field label="Questions">{(id) => <NumberInput id={id} value={section.questionCount} min={1} max={section.type === "mcq" ? 200 : 20} presets={QUICK_COUNTS} onChange={(v) => onChange({ ...section, questionCount: v })} />}</Field>
         {section.type === "mcq" && (
           <>
             <Field label="Options">{(id) => (
