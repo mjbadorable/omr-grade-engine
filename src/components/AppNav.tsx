@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import ThemeToggle from "@/components/brand/ThemeToggle";
 import SyncBadge from "@/components/cloud/SyncBadge";
 import { openAbout } from "@/lib/acknowledgment";
+import { openGuide } from "@/lib/tutorial-state";
 import { useCloudSession } from "@/components/cloud/CloudSession";
 import { isAdmin, type Role } from "@/lib/roles/policy";
 
@@ -33,6 +34,10 @@ export default function AppNav() {
         );
       })}
       <span className="ml-2"><SyncBadge /></span>
+      <button type="button" onClick={() => openGuide()} data-testid="guide-trigger" title="Tutorial & Guidelines for this page" className="ml-1 inline-flex h-8 items-center gap-1 rounded-md border border-gold/50 bg-gold-tint px-2 text-xs font-semibold text-gold-hover hover:brightness-95 dark:text-gold">
+        <span aria-hidden className="grid size-4 place-items-center rounded-full bg-gold text-[10px] font-bold text-white">?</span>
+        <span>Guide</span>
+      </button>
       <button type="button" onClick={openAbout} data-testid="about-trigger" title="About VERITAS · Credits" className="ml-1 inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800">
         <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></svg>
         <span className="hidden md:inline">About</span>

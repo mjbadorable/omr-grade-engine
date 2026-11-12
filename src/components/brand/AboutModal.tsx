@@ -8,6 +8,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { OPEN_ABOUT_EVENT, readAck, writeAck } from "@/lib/acknowledgment";
+import { ACK_ACCEPTED_EVENT } from "@/lib/tutorial-state";
 import { BRAND } from "@/lib/brand";
 
 const BODY = "This platform is an official project of the University of San Agustin — Educational Technology Office (EdTech) in partnership with the Center for Information and Communications Technology (CICT), developed for faculty to streamline optical mark recognition (OMR) exam grading and Outcomes-Based Education (OBE) analytics.";
@@ -52,7 +53,13 @@ export default function AboutModal() {
   }, [open, state.ready]);
 
   const close = useCallback(() => setState((s) => ({ ...s, open: false })), []);
-  const understand = () => { writeAck(); acked.current = true; setState({ ready: true, acked: true, open: false }); };
+  const understand = () => {
+    const first = !acked.current;
+    writeAck(); acked.current = true;
+    setState({ ready: true, acked: true, open: false });
+    // storage may be blocked: still let the guide appear for this visit
+    if (first) window.dispatchEvent(new Event(ACK_ACCEPTED_EVENT));
+  };
   const locked = !state.acked;
 
   if (!state.ready) return null;

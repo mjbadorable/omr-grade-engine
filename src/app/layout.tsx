@@ -2,6 +2,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import AboutModal from "@/components/brand/AboutModal";
+import TutorialModal from "@/components/brand/TutorialModal";
 import { THEME_INIT_SCRIPT } from "@/components/brand/ThemeToggle";
 import { BRAND } from "@/lib/brand";
 import ConvexClientProvider from "./ConvexClientProvider";
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         {/* Clerk only when configured, so local-first and dev-auth builds need no Clerk keys */}
         {clerkKey ? <ClerkProvider publishableKey={clerkKey} afterSignOutUrl="/grade">{app}</ClerkProvider> : app}
         <AboutModal />
+        <TutorialModal />
       </body>
     </html>
   );
