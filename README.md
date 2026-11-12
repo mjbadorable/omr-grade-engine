@@ -140,6 +140,12 @@ The matrix lives in `src/lib/roles/policy.ts` and is enforced server-side in `co
 
 Tests: `tests/syllabus/` (parser incl. a real PDF round-trip, TOS, attainment, report) and `tests/roles/` (role matrix, formula, audit search, and the Convex functions enforcing them).
 
+## Sprint 6: Offline outbox, field calibration, production hardening
+
+- **Offline outbox (cloud mode).** `src/lib/sync/offline-outbox.ts` stores answer-key saves, grade overrides, conflict resolutions and scan uploads in IndexedDB (`cloudOps`) with monotonic timestamps and idempotency keys, then replays them in order when the browser comes back online or the Convex socket reconnects (`useCloudOutbox`). Servers dedupe replays (`clientKeyId`, `patchId`, `clientId`, `clientScanId`). If another teacher saved a key meanwhile, `key-merge.ts` merges three ways (their edits to other questions are kept; a clash keeps the server value and reports it). The header badge shows *Saved Offline · Queued for Sync (N)* → *All Changes Synced*.
+- **Field calibration (`/scan`).** *Scanner calibration* drawer: diagnostic overlay (corner squares, anti-curl bands, green/yellow/red bubble rings), sensitivity presets/sliders (ink level, fill coverage), calibration mode (no save/upload), rescan and JSON export. The camera shows *Too Dark*, *Glare Detected* and *Hold Steady* guardrails and a torch toggle.
+- **Production guardrail.** The dev token issuer is dropped from `OMR_AUTH_PROVIDERS` on production deployments and its tokens are refused; `DEFAULT_ADMIN_EMAILS` bootstraps admins. See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full Vercel + Convex + Clerk checklist.
+
 ## Backend: Convex (+ Vercel)
 
 Without `NEXT_PUBLIC_CONVEX_URL` the app is local-first exactly as above. With it, `/scan` uploads sheets to the selected cloud exam and `/grade` reads live Convex subscriptions.
@@ -189,7 +195,7 @@ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_live_...
 
 With `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` set, `app/layout.tsx` mounts `ClerkProvider` and `ConvexClientProvider` uses `ConvexProviderWithClerk` with Clerk's `useAuth`. The cloud panel shows **Continue with Google**; a signed-in account outside the allowlist sees why it was refused and can switch accounts. There is deliberately **no Clerk middleware**: pages are static and offline-first, and all protected data goes through Convex, so pages keep working when Clerk is unreachable (development instances would otherwise redirect every first request to Clerk for a session handshake). No `CLERK_SECRET_KEY` is needed by the app.
 
-Local development without Clerk: `NEXT_PUBLIC_OMR_AUTH=dev` + `scripts/dev-auth.mjs` (tokens carry `email_verified`; mint them for `@usa.edu.ph` addresses). Never put the dev issuer in a production `OMR_AUTH_PROVIDERS`.
+Local development without Clerk: `NEXT_PUBLIC_OMR_AUTH=dev` + `scripts/dev-auth.mjs` (tokens carry `email_verified`; mint them for `@usa.edu.ph` addresses). Never put the dev issuer in a production `OMR_AUTH_PROVIDERS` (production deployments drop it and refuse its tokens; see [DEPLOYMENT.md](DEPLOYMENT.md)).
 
 ### Deploy on Vercel
 

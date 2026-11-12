@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { emailAllowedByPolicy } from "../src/lib/admin/formula";
 import { checkRoleChange } from "../src/lib/roles/policy";
-import { fail, logAudit, requireRole, requireUser } from "./lib/access";
+import { ensureDefaultAdmin, fail, logAudit, requireRole, requireUser } from "./lib/access";
 import { role } from "./validators";
 
 export const create = mutation({
@@ -14,6 +14,8 @@ export const create = mutation({
     if (!trimmed) fail("INVALID", "School name is required.");
     const orgId = await ctx.db.insert("orgs", { name: trimmed, createdBy: user._id });
     await ctx.db.insert("memberships", { orgId, userId: user._id, role: "owner" });
+    // bootstrap admins that already signed in join the new school too
+    for (const u of await ctx.db.query("users").take(2000)) if (u._id !== user._id) await ensureDefaultAdmin(ctx, orgId, u);
     return orgId;
   },
 });

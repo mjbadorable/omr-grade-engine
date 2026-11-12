@@ -8,10 +8,15 @@
  *               "jwks":"data:...","algorithm":"RS256"}]      ← `node scripts/dev-auth.mjs setup`
  *     None:   []
  *
- * Production sets only its real provider; the dev issuer is only ever set on local/dev
- * deployments. (Convex Auth would replace this file with its own provider config.)
+ * PRODUCTION GUARDRAIL: on a production deployment (NODE_ENV=production, OMR_ENV=production, or
+ * any non-local deployment that has not declared OMR_ENV=development) the dev issuer and every
+ * custom-JWT provider are dropped, leaving verified Clerk OIDC only; see src/lib/cloud/auth-guard.ts.
+ * If nothing valid remains, nobody can sign in (fail closed).
  */
-const providers = JSON.parse(process.env.OMR_AUTH_PROVIDERS ?? "[]") as Record<string, string>[];
+import { selectAuthProviders } from "../src/lib/cloud/auth-guard";
 
-const authConfig = { providers };
+const selection = selectAuthProviders(process.env);
+if (selection.error) console.error(`[omr-auth] ${selection.error}`);
+
+const authConfig = { providers: selection.providers } as { providers: never[] };
 export default authConfig;

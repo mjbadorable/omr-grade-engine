@@ -1,5 +1,5 @@
 import { mutation, query } from "./_generated/server";
-import { accessDecision, allowedDomains, currentUser, requireAllowedIdentity } from "./lib/access";
+import { accessDecision, allowedDomains, currentUser, defaultAdminEmails, ensureDefaultAdmin, requireAllowedIdentity } from "./lib/access";
 
 /** Upsert the signed-in user (call once after sign-in). Refuses accounts outside the allowlist. */
 export const store = mutation({
@@ -8,11 +8,18 @@ export const store = mutation({
     const identity = await requireAllowedIdentity(ctx);
     const existing = await currentUser(ctx);
     const patch = { name: identity.name ?? identity.nickname ?? undefined, email: identity.email?.trim().toLowerCase() ?? undefined };
+    let id = existing?._id;
     if (existing) {
       if (existing.name !== patch.name || existing.email !== patch.email) await ctx.db.patch(existing._id, patch);
-      return existing._id;
+    } else {
+      id = await ctx.db.insert("users", { tokenIdentifier: identity.tokenIdentifier, ...patch });
     }
-    return ctx.db.insert("users", { tokenIdentifier: identity.tokenIdentifier, ...patch });
+    // DEFAULT_ADMIN_EMAILS: bootstrap admins join every existing school as admin on sign-in.
+    if (defaultAdminEmails().includes(patch.email ?? "")) {
+      const user = (await ctx.db.get(id!))!;
+      for (const org of await ctx.db.query("orgs").take(500)) await ensureDefaultAdmin(ctx, org._id, user);
+    }
+    return id!;
   },
 });
 

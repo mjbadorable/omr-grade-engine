@@ -29,12 +29,17 @@ function keys() {
   return { priv, jwks: { keys: [jwk] } };
 }
 
+// Hard stop for production: this script mints tokens for a throwaway key pair.
+if (process.env.NODE_ENV === "production" || process.env.OMR_ENV === "production" || /^prod:/.test(process.env.CONVEX_DEPLOYMENT ?? "") || process.env.CONVEX_DEPLOY_KEY?.startsWith("prod:")) {
+  console.error("dev-auth is disabled for production (NODE_ENV / OMR_ENV / CONVEX_DEPLOYMENT point at production).");
+  process.exit(2);
+}
 const [cmd, ...args] = process.argv.slice(2);
 const { priv, jwks } = keys();
 if (cmd === "setup") {
   const uri = `data:text/plain;charset=utf-8;base64,${Buffer.from(JSON.stringify(jwks)).toString("base64")}`;
   const providers = [{ type: "customJwt", applicationID: "omr-dev", issuer: ISSUER, jwks: uri, algorithm: "RS256" }];
-  console.log(`npx convex env set OMR_AUTH_PROVIDERS '${JSON.stringify(providers)}'`);
+  console.log(`npx convex env set OMR_ENV development\nnpx convex env set OMR_AUTH_PROVIDERS '${JSON.stringify(providers)}'`);
 } else if (cmd === "token") {
   const [sub = "dev-teacher", name = "Dev Teacher", email = `${sub}@usa.edu.ph`] = args;
   const now = Math.floor(Date.now() / 1000);

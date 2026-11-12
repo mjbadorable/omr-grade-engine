@@ -4,19 +4,18 @@
  * school + exam selection, and the scan uploader used by /scan.
  */
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import { type CloudOutboxState, useCloudOutbox } from "./useCloudOutbox";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { ScanSubmitResult } from "../../../convex/grading";
-import { compactReadouts } from "@/lib/cloud/convert";
 import { setDevToken } from "@/lib/cloud/dev-auth";
 import { type OMRTemplate, OMRTemplateSchema } from "@/lib/omr/schema";
-import { getScan } from "@/lib/storage/scan-store";
-import { identity } from "@/lib/sync/local-sync";
 import type { SyllabusPlan } from "@/lib/syllabus/plan-store";
 import type { ScanOutput } from "@/lib/vision/scan-sheet";
 
 const SELECTION_KEY = "omr:cloudSelection";
+/** legacy (pre-outbox) list of scan ids that failed to upload; migrated into the outbox once */
 const PENDING_KEY = "omr:cloudPendingUploads";
 
 interface Selection { orgId: Id<"orgs"> | null; examId: Id<"exams"> | null; layoutHash: string | null }
@@ -43,7 +42,10 @@ export interface CloudSessionValue {
   addTeacher: (email: string, role: "teacher" | "admin" | "viewer") => Promise<void>;
   /** upload one scanned sheet (+ de-warped preview) to the selected exam */
   uploadScan: (s: { sheetId: string; result: ScanOutput; preview: Blob | null }) => Promise<ScanSubmitResult | null>;
+  /** scans waiting in the outbox (kept for the existing queued-uploads badge) */
   pendingUploads: number;
+  /** offline outbox: queued key saves, overrides, resolutions and uploads */
+  sync: CloudOutboxState;
 }
 
 const Ctx = createContext<CloudSessionValue | null>(null);
@@ -53,14 +55,13 @@ export const useCloudSession = () => useContext(Ctx);
 function readSelection(): Selection {
   try { return { orgId: null, examId: null, layoutHash: null, ...JSON.parse(localStorage.getItem(SELECTION_KEY) ?? "{}") }; } catch { return { orgId: null, examId: null, layoutHash: null }; }
 }
-const readPending = (): string[] => { try { return JSON.parse(localStorage.getItem(PENDING_KEY) ?? "[]"); } catch { return []; } };
-const writePending = (ids: string[]) => { try { localStorage.setItem(PENDING_KEY, JSON.stringify([...new Set(ids)])); } catch { /* ignore */ } };
+const readLegacyPending = (): string[] => { try { return JSON.parse(localStorage.getItem(PENDING_KEY) ?? "[]"); } catch { return []; } };
+const clearLegacyPending = () => { try { localStorage.removeItem(PENDING_KEY); } catch { /* ignore */ } };
 
 export function CloudSessionProvider({ authMode, children }: { authMode: string; children: ReactNode }) {
   const { isLoading, isAuthenticated } = useConvexAuth();
   const [selection, setSelection] = useState<Selection>({ orgId: null, examId: null, layoutHash: null });
-  const [pendingUploads, setPendingUploads] = useState(0);
-  useEffect(() => { setSelection(readSelection()); setPendingUploads(readPending().length); }, []);
+  useEffect(() => { setSelection(readSelection()); }, []);
   const persist = (s: Selection) => { setSelection(s); try { localStorage.setItem(SELECTION_KEY, JSON.stringify(s)); } catch { /* ignore */ } };
 
   const access = useQuery(api.users.accessStatus, isAuthenticated ? {} : "skip");
@@ -91,53 +92,27 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
   const createExamM = useMutation(api.exams.create);
   const upsertSyllabusM = useMutation(api.syllabi.upsert);
   const addMemberM = useMutation(api.orgs.addMember);
-  const uploadUrlM = useMutation(api.grading.generateUploadUrl);
-  const submitM = useMutation(api.grading.submitScanBatch);
+  const sync = useCloudOutbox(ready);
 
-  const uploadScan = useCallback<CloudSessionValue["uploadScan"]>(async ({ sheetId, result, preview }) => {
+  // Queue, then try to send. Resolves with the server's verdict, or null while the scan is only queued.
+  const uploadScan = useCallback<CloudSessionValue["uploadScan"]>(async ({ sheetId, result }) => {
     const sel = readSelection();
-    if (!sel.examId || sel.layoutHash !== result.layoutHash || !examTemplate) return null;
-    try {
-      let previewStorageId: Id<"_storage"> | undefined;
-      if (preview) {
-        const url = await uploadUrlM({ examId: sel.examId });
-        const r = await fetch(url, { method: "POST", headers: { "content-type": preview.type || "image/jpeg" }, body: preview });
-        if (r.ok) previewStorageId = (await r.json()).storageId;
-      }
-      const page = examTemplate.pages[result.pageIndex] ?? examTemplate.pages[0];
-      const [res] = await submitM({
-        examId: sel.examId, deviceId: identity().deviceId,
-        scans: [{
-          clientScanId: sheetId, layoutHash: result.layoutHash, pageIndex: result.pageIndex, fields: result.fields,
-          rawBubbleReadouts: compactReadouts(page, result.bubbles),
-          confidence: result.bubbles.length ? Math.min(...result.bubbles.map((b) => b.confidence)) : 0,
-          scanTimestamp: Date.now(), ...(previewStorageId ? { previewStorageId } : {}),
-        }],
-      });
-      writePending(readPending().filter((x) => x !== sheetId));
-      setPendingUploads(readPending().length);
-      return res;
-    } catch (e) {
-      writePending([...readPending(), sheetId]);           // offline / server error: retried on next load
-      setPendingUploads(readPending().length);
-      throw e;
-    }
-  }, [examTemplate, submitM, uploadUrlM]);
+    if (!sel.examId || sel.layoutHash !== result.layoutHash) return null;
+    const op = await sync.enqueue("UPLOAD_SCAN", sel.examId, { sheetId, layoutHash: result.layoutHash }, `scan:${sel.examId}:${sheetId}`);
+    const report = await sync.drain();
+    return (report?.results.get(op.id) as ScanSubmitResult | undefined) ?? null;
+  }, [sync]);
 
-  // retry uploads that failed earlier (sheets are still in IndexedDB)
-  const retried = useRef(false);
+  // one-time migration of uploads queued by the previous (localStorage) mechanism
+  const migrated = useRef(false);
   useEffect(() => {
-    if (!ready || !examTemplate || retried.current) return;
-    retried.current = true;
-    (async () => {
-      for (const id of readPending()) {
-        const s = await getScan(id).catch(() => undefined);
-        if (!s) { writePending(readPending().filter((x) => x !== id)); continue; }
-        await uploadScan({ sheetId: s.sheetId, result: s.result, preview: s.preview }).catch(() => {});
-      }
-      setPendingUploads(readPending().length);
-    })();
-  }, [ready, examTemplate, uploadScan]);
+    if (!ready || migrated.current) return;
+    migrated.current = true;
+    const legacy = readLegacyPending();
+    const sel = readSelection();
+    if (!legacy.length || !sel.examId || !sel.layoutHash) return;
+    Promise.all(legacy.map((id) => sync.enqueue("UPLOAD_SCAN", sel.examId!, { sheetId: id, layoutHash: sel.layoutHash! }, `scan:${sel.examId}:${id}`))).then(clearLegacyPending).catch(() => {});
+  }, [ready, sync]);
 
   const value: CloudSessionValue = {
     authMode, isLoading, isAuthenticated, me, access,
@@ -155,7 +130,7 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
       return id;
     },
     addTeacher: async (email, role) => { await addMemberM({ orgId: selection.orgId!, email, role }); },
-    uploadScan, pendingUploads,
+    uploadScan, pendingUploads: sync.pendingOps.filter((o) => o.kind === "UPLOAD_SCAN").length, sync,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

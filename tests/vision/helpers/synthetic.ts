@@ -16,7 +16,7 @@ import type { CV, Mat } from "@/lib/vision/cv";
 import { applyHomography, homographyFrom4, invertMat3 } from "@/lib/vision/geometry";
 import type { RgbaFrame, Vec2 } from "@/lib/vision/types";
 
-export type MarkKind = "fill" | "light" | "partial" | "erasure";
+export type MarkKind = "fill" | "light" | "partial" | "erasure" | "pencil";
 export type Markings = Record<string, MarkKind>;
 
 const gray = (hex: string) => {
@@ -53,6 +53,7 @@ export function renderPage(cv: CV, t: OMRTemplate, pageIndex: number, s: number,
     const rr = Math.round(r * 0.86);
     if (kind === "fill") cv.circle(img, c, rr, new cv.Scalar(45), -1, cv.LINE_AA);
     else if (kind === "light") cv.circle(img, c, rr, new cv.Scalar(105), -1, cv.LINE_AA);
+    else if (kind === "pencil") cv.circle(img, c, rr, new cv.Scalar(150), -1, cv.LINE_AA);   // faint #2 graphite
     else if (kind === "erasure") cv.circle(img, c, rr, new cv.Scalar(205), -1, cv.LINE_AA);
     else cv.ellipse(img, c, new cv.Size(rr, rr), 0, 90, 270, new cv.Scalar(45), -1, cv.LINE_AA); // left half
   }

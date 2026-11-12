@@ -15,6 +15,7 @@ import { detectCorners, warpToCanonical } from "./detect-corners";
 import { canonicalFrame, DEFAULT_PX_PER_MM, invertMat3 } from "./geometry";
 import { DEFAULT_MAX_LONG_EDGE, inkDarkness, normalizeFrame } from "./normalize";
 import { decodeQr, qrMatchesTemplate } from "./qr";
+import { thresholdsFor } from "./tuning";
 import { readBubbles } from "./read-bubbles";
 import {
   type CornerPoints,
@@ -109,7 +110,7 @@ export function scanSheet(cv: CV, frame: RgbaFrame, template: OMRTemplate, opts:
 
     // ---- read & decode
     emit("processing", "read-bubbles");
-    const bubbles = readBubbles(darkness, page, template, cells, cf);
+    const bubbles = readBubbles(darkness, page, template, cells, cf, thresholdsFor(opts.tuning));
     mark("bubbles");
     const fields = decodeFields(page, bubbles);
     mark("decode");

@@ -5,11 +5,10 @@
  * connected /grade pages receive the change and rescore locally.
  */
 import { useConvex, useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { ConvexError } from "convex/values";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo } from "react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { answerKeyToBody, bodyToAnswerKey, expandReadouts, overrideRowToPatch, resolutionRowToDomain } from "@/lib/cloud/convert";
+import { type AnswerKeyBody, answerKeyToBody, bodyToAnswerKey, expandReadouts, overrideRowToPatch, resolutionRowToDomain } from "@/lib/cloud/convert";
 import type { AnswerKey } from "@/lib/grading/types";
 import type { OMRTemplate } from "@/lib/omr/schema";
 import type { ManualOverridePatch } from "@/lib/review/overrides";
@@ -47,10 +46,13 @@ export interface CloudExamValue {
   resolutions: ConflictResolution[];
   roster: Roster | null | undefined;
   analytics: { status: "pending" | "current" | "stale"; kr20: number | null; mean: number | null; gradedCount: number; openConflicts: number; keyVersion: number | null } | undefined;
-  /** save a new key version; resolves with the new version or the server's current version on conflict */
-  saveKey: (key: AnswerKey, baseVersion: number) => Promise<{ ok: true; version: number } | { ok: false; currentVersion: number }>;
+  /**
+   * Queue a key save (durable, survives offline) and send it when possible. `queued` = not on the
+   * server yet; a concurrent edit by another teacher is merged on replay, never overwritten.
+   */
+  saveKey: (key: AnswerKey, baseVersion: number) => Promise<{ ok: true; version: number; queued?: boolean } | { ok: false; currentVersion: number }>;
   addPatches: (patches: ManualOverridePatch[]) => Promise<void>;
-  resolve: (rollKey: string, keepScanId: string) => Promise<void>;
+  resolve: (rollKey: string, keepScanId: string, supersededScanIds?: string[]) => Promise<void>;
   setRoster: (r: Roster) => Promise<void>;
   /** scan image + per-bubble readouts for the review modal */
   loadScanDetail: (scanId: string) => Promise<StoredScan | null>;
@@ -76,27 +78,48 @@ export function CloudExamProvider({ children }: { children: ReactNode }) {
   useEffect(() => { if (feed.status === "CanLoadMore") feed.loadMore(500); }, [feed]);
 
   const convex = useConvex();
-  const updateKeyM = useMutation(api.grading.updateAnswerKey);
-  const addOverridesM = useMutation(api.grading.addOverrides);
-  const resolveM = useMutation(api.grading.resolveConflict);
+  const sync = session?.sync;
   const setRosterM = useMutation(api.exams.setRoster);
 
   const template = session?.examTemplate ?? null;
   const layoutHash = template?.layoutHash ?? "";
-  const key = useMemo(() => (keyDoc && examId ? bodyToAnswerKey(keyDoc, { examId, version: keyDoc.version, layoutHash }) : undefined), [keyDoc, examId, layoutHash]);
-  const patches = useMemo(() => (overrides ?? []).map((o) => overrideRowToPatch(o)), [overrides]);
-  const res = useMemo(() => (resolutions ?? []).map((r) => resolutionRowToDomain(r, layoutHash)), [resolutions, layoutHash]);
+  // Optimistic overlay: what this device has queued but the server has not acknowledged yet.
+  const queued = useMemo(() => (sync?.pendingOps ?? []).filter((o) => o.examId === examId), [sync?.pendingOps, examId]);
+  const queuedKey = useMemo(() => {
+    const ops = queued.filter((o) => o.kind === "UPDATE_ANSWER_KEY");
+    return ops.length ? (ops[ops.length - 1].payload as { key: AnswerKeyBody }).key : null;
+  }, [queued]);
+  const key = useMemo(() => {
+    if (!keyDoc || !examId) return undefined;
+    // keep the server's version number so edits made on top of it keep the right base
+    return bodyToAnswerKey(queuedKey ?? keyDoc, { examId, version: keyDoc.version, layoutHash });
+  }, [keyDoc, queuedKey, examId, layoutHash]);
+  const patches = useMemo(() => {
+    const server = (overrides ?? []).map((o) => overrideRowToPatch(o));
+    const have = new Set(server.map((p) => p.id));
+    const local = queued.filter((o) => o.kind === "APPLY_OVERRIDE").flatMap((o) => (o.payload as { patches: { patchId: string; scanId: string; target: ManualOverridePatch["target"]; questionNumber: number; originalState: ManualOverridePatch["originalState"]; overriddenOption: ManualOverridePatch["overriddenOption"]; reason: string; timestamp: number }[] }).patches)
+      .filter((p) => !have.has(p.patchId)).map((p): ManualOverridePatch => ({ id: p.patchId, sheetId: p.scanId, target: p.target, questionNumber: p.questionNumber, originalState: p.originalState, overriddenOption: p.overriddenOption, reason: p.reason, timestamp: p.timestamp, teacherId: session?.me?._id ?? "me" }));
+    return [...server, ...local];
+  }, [overrides, queued, session?.me?._id]);
+  const res = useMemo(() => {
+    const server = (resolutions ?? []).map((r) => resolutionRowToDomain(r, layoutHash));
+    const local = queued.filter((o) => o.kind === "RESOLVE_CONFLICT").map((o): ConflictResolution => {
+      const p = o.payload as { rollKey: string; keepScanId: string; supersededScanIds: string[] };
+      return { id: o.id, layoutHash, rollKey: p.rollKey, keepSheetId: p.keepScanId, supersededSheetIds: p.supersededScanIds, teacherId: session?.me?._id ?? "me", timestamp: o.ts };
+    });
+    return [...server, ...local];
+  }, [resolutions, queued, layoutHash, session?.me?._id]);
   const scans = useMemo(() => (feed.status === "LoadingFirstPage" ? undefined : (feed.results as CloudScanRow[])), [feed.status, feed.results]);
 
   const saveKey = useCallback<CloudExamValue["saveKey"]>(async (k, baseVersion) => {
-    try {
-      const r = await updateKeyM({ examId: examId!, baseVersion, key: answerKeyToBody(k) });
-      return { ok: true, version: r.version };
-    } catch (e) {
-      if (e instanceof ConvexError && (e.data as { code?: string }).code === "KEY_VERSION_CONFLICT") return { ok: false, currentVersion: (e.data as { currentVersion: number }).currentVersion };
-      throw e;
-    }
-  }, [examId, updateKeyM]);
+    if (!sync || !examId) throw new Error("Cloud session is not ready.");
+    // the body the teacher started from, so a replay can merge three ways if someone else saved meanwhile
+    const base = keyDoc && keyDoc.version === baseVersion ? (JSON.parse(JSON.stringify({ questions: keyDoc.questions, sets: keyDoc.sets, defaultSet: keyDoc.defaultSet, gradeBands: keyDoc.gradeBands, conflictPolicy: keyDoc.conflictPolicy })) as AnswerKeyBody) : null;
+    const op = await sync.enqueue("UPDATE_ANSWER_KEY", examId, { baseVersion, base, key: answerKeyToBody(k) });
+    const report = await sync.drain();
+    const done = (report?.results.get(op.id) as { version: number } | undefined)?.version;
+    return done ? { ok: true, version: done } : { ok: true, version: baseVersion, queued: true };
+  }, [sync, examId, keyDoc]);
 
   const loadScanDetail = useCallback(async (scanId: string): Promise<StoredScan | null> => {
     if (!template) return null;
@@ -124,12 +147,21 @@ export function CloudExamProvider({ children }: { children: ReactNode }) {
       patches, resolutions: res, roster,
       analytics: analytics ? { status: analytics.status, kr20: snap?.kr20 ?? null, mean: snap?.mean ?? null, gradedCount: snap?.gradedCount ?? 0, openConflicts: snap?.openConflicts ?? 0, keyVersion: snap?.keyVersion ?? null } : undefined,
       saveKey,
-      addPatches: async (ps) => { await addOverridesM({ examId, patches: ps.map((p) => ({ patchId: p.id, scanId: p.sheetId as Id<"scans">, target: p.target, questionNumber: p.questionNumber, originalState: JSON.parse(JSON.stringify(p.originalState)), overriddenOption: p.overriddenOption, reason: p.reason, timestamp: p.timestamp })) }); },
-      resolve: async (rollKey, keepScanId) => { await resolveM({ examId, rollKey, keepScanId: keepScanId as Id<"scans"> }); },
+      addPatches: async (ps) => {
+        if (!sync) throw new Error("Cloud session is not ready.");
+        if (ps.some((p) => !p.reason.trim())) throw new Error("Every correction needs a reason for the audit log.");   // same rule as the server, checked before queueing
+        await sync.enqueue("APPLY_OVERRIDE", examId, { patches: ps.map((p) => ({ patchId: p.id, scanId: p.sheetId, target: p.target, questionNumber: p.questionNumber, originalState: JSON.parse(JSON.stringify(p.originalState)), overriddenOption: p.overriddenOption, reason: p.reason, timestamp: p.timestamp })) });
+        void sync.drain();
+      },
+      resolve: async (rollKey, keepScanId, supersededScanIds = []) => {
+        if (!sync) throw new Error("Cloud session is not ready.");
+        await sync.enqueue("RESOLVE_CONFLICT", examId, { rollKey, keepScanId, supersededScanIds, layoutHash });
+        void sync.drain();
+      },
       setRoster: async (r) => { await setRosterM({ examId, roster: r }); },
       loadScanDetail,
     };
-  }, [examId, exam, syllabus, syllabusId, template, key, scans, feed.status, patches, res, roster, analytics, saveKey, addOverridesM, resolveM, setRosterM, loadScanDetail]);
+  }, [examId, exam, syllabus, syllabusId, template, key, scans, feed.status, patches, res, roster, analytics, saveKey, sync, layoutHash, setRosterM, loadScanDetail]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

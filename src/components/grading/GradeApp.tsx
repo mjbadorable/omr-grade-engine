@@ -138,7 +138,7 @@ export default function GradeApp() {
       setCloudSaving(true);
       try {
         const r = await cloud.saveKey(key, cloudBase.current!);
-        if (r.ok) { cloudBase.current = r.version; }
+        if (r.ok) { cloudBase.current = r.version; if (r.queued) setNotice("Saved offline. The answer key will sync automatically when you are back online."); }
         else setNotice(`Answer key v${r.currentVersion} was saved by another teacher; your edits were not applied. Re-apply them on the new version.`);
         dirty.current = false;
       } catch (e) {
@@ -249,7 +249,7 @@ export default function GradeApp() {
   }
 
   async function keep(group: ConflictGroup, keepSheetId: string) {
-    if (cloud) { await cloud.resolve(group.rollKey, keepSheetId).catch((e) => setNotice(`Not saved: ${e?.data?.message ?? e.message}`)); return; }
+    if (cloud) { await cloud.resolve(group.rollKey, keepSheetId, group.sheetIds.filter((x) => x !== keepSheetId)).catch((e) => setNotice(`Not saved: ${e?.data?.message ?? e.message}`)); return; }
     const r: ConflictResolution = {
       id: crypto.randomUUID(), layoutHash: group.layoutHash, rollKey: group.rollKey, keepSheetId,
       supersededSheetIds: group.sheetIds.filter((x) => x !== keepSheetId), teacherId: identity().teacherId, timestamp: Date.now(),

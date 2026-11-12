@@ -26,6 +26,9 @@ export const THRESHOLDS = {
   BASELINE_SLACK: 0.08,    // a group's baseline may not exceed the sheet baseline by more
 } as const;
 
+/** Decision thresholds as plain numbers (the field-calibration drawer tunes INK_LEVEL and FILL_COVERAGE). */
+export type Thresholds = { -readonly [K in keyof typeof THRESHOLDS]: number };
+
 export interface DiskSample { density: number; coverage: number; n: number }
 
 /** Mean darkness and ink coverage over a disc of radius r (px) centred at (cx, cy). */
@@ -60,8 +63,7 @@ const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
 export interface Classified { state: BubbleState; confidence: number; adjustedDensity: number }
 
-export function classifyGroup(samples: DiskSample[], sheetBase: number): Classified[] {
-  const T = THRESHOLDS;
+export function classifyGroup(samples: DiskSample[], sheetBase: number, T: Thresholds = THRESHOLDS): Classified[] {
   const groupMin = Math.min(...samples.map((s) => s.density));
   const base = Math.min(groupMin, sheetBase + T.BASELINE_SLACK);
   return samples.map((s) => {
@@ -115,14 +117,14 @@ export function cellLookup(cells: CellTransform[]) {
 }
 
 /** Read every bubble of `page` from a canonical darkness map (8-bit, 0 = paper). */
-export function readBubbles(darkness: Mat, page: OMRPage, template: OMRTemplate, cells: CellTransform[], frame: CanonicalFrame): BubbleReadout[] {
+export function readBubbles(darkness: Mat, page: OMRPage, template: OMRTemplate, cells: CellTransform[], frame: CanonicalFrame, T: Thresholds = THRESHOLDS): BubbleReadout[] {
   const refs = bubbleRefs(page);
   const cellOf = cellLookup(cells);
   const r = template.bubble.innerSampleRatio * (template.bubble.diameterMm / 2) * frame.pxPerMm;
   const data = darkness.data as Uint8Array;
   const samples = refs.map((ref) => {
     const center: Vec2 = applyHomography(cellOf(ref.cell[0], ref.cell[1]).matrix, { x: ref.centerMm[0], y: ref.centerMm[1] });
-    return { ref, center, s: sampleDisk(data, darkness.cols, darkness.rows, center.x, center.y, r) };
+    return { ref, center, s: sampleDisk(data, darkness.cols, darkness.rows, center.x, center.y, r, T.INK_LEVEL) };
   });
   const base = sheetBaseline(samples.map((x) => x.s.density));
   const groups = new Map<string, typeof samples>();
@@ -130,7 +132,7 @@ export function readBubbles(darkness: Mat, page: OMRPage, template: OMRTemplate,
 
   const out: BubbleReadout[] = [];
   for (const g of groups.values()) {
-    const cls = classifyGroup(g.map((x) => x.s), base);
+    const cls = classifyGroup(g.map((x) => x.s), base, T);
     g.forEach((x, i) => out.push({
       questionIndex: x.ref.questionIndex,
       optionIndex: x.ref.optionIndex,

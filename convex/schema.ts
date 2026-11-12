@@ -99,7 +99,9 @@ export default defineSchema({
     version: v.number(),
     ...answerKeyBody,
     createdBy: v.id("users"),
-  }).index("by_exam_version", ["examId", "version"]),
+    /** idempotency key of an offline-queued save: replaying the same save never creates a second version */
+    clientKeyId: v.optional(v.string()),
+  }).index("by_exam_version", ["examId", "version"]).index("by_exam_client", ["examId", "clientKeyId"]),
 
   scans: defineTable({
     examId: v.id("exams"),
@@ -147,7 +149,9 @@ export default defineSchema({
     supersededScanIds: v.array(v.id("scans")),
     teacherId: v.id("users"),
     timestamp: v.number(),
-  }).index("by_exam", ["examId"]),
+    /** idempotency key of an offline-queued resolution */
+    clientId: v.optional(v.string()),
+  }).index("by_exam", ["examId"]).index("by_exam_client", ["examId", "clientId"]),
 
   examAnalytics: defineTable({
     examId: v.id("exams"),

@@ -5,9 +5,11 @@
  *   overrides    ManualOverridePatch log (append-only)
  *   resolutions  administrative conflict resolutions (append-only)
  *   outbox       sync outbox (seq-keyed)
+ *   cloudOps     cloud-mode transaction outbox (id-keyed)
  *   meta         small key/value records (sync cursor, roster per template, …)
  */
 import type { ManualOverridePatch } from "@/lib/review/overrides";
+import type { CloudOp, CloudOpStore } from "@/lib/sync/offline-outbox";
 import type { ConflictResolution, OutboxEntry, OutboxStore } from "@/lib/sync/types";
 import type { ScanOutput } from "@/lib/vision/scan-sheet";
 
@@ -25,7 +27,7 @@ export interface StoredScan {
 }
 
 const DB = "omr-grade-engine";
-const VERSION = 2;
+const VERSION = 3;
 
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -36,6 +38,7 @@ function open(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("overrides")) db.createObjectStore("overrides", { keyPath: "id" }).createIndex("sheetId", "sheetId");
       if (!db.objectStoreNames.contains("resolutions")) db.createObjectStore("resolutions", { keyPath: "id" }).createIndex("layoutHash", "layoutHash");
       if (!db.objectStoreNames.contains("outbox")) db.createObjectStore("outbox", { keyPath: "seq" });
+      if (!db.objectStoreNames.contains("cloudOps")) db.createObjectStore("cloudOps", { keyPath: "id" });
       if (!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", { keyPath: "key" });
     };
     req.onsuccess = () => resolve(req.result);
@@ -88,6 +91,14 @@ export class IdbOutboxStore implements OutboxStore {
   }
   getMeta(k: string) { return getMeta<string>(`sync:${k}`); }
   setMeta(k: string, v: string) { return setMeta(`sync:${k}`, v); }
+}
+
+/** Cloud-mode transaction outbox (key saves, overrides, resolutions, scan uploads). */
+export class IdbCloudOpStore implements CloudOpStore {
+  get(id: string) { return tx<CloudOp | undefined>("cloudOps", "readonly", (st) => st.get(id)); }
+  put(op: CloudOp) { return tx("cloudOps", "readwrite", (st) => st.put(op)).then(() => undefined); }
+  all() { return tx<CloudOp[]>("cloudOps", "readonly", (st) => st.getAll()); }
+  async deleteMany(ids: string[]) { for (const id of ids) await tx("cloudOps", "readwrite", (st) => st.delete(id)); }
 }
 
 /** ImageBitmap → JPEG blob (main thread). */

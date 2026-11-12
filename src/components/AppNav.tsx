@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import SyncBadge from "@/components/cloud/SyncBadge";
 import { useCloudSession } from "@/components/cloud/CloudSession";
 import { isAdmin, type Role } from "@/lib/roles/policy";
 
@@ -29,6 +30,7 @@ export default function AppNav() {
           </Link>
         );
       })}
+      <span className="ml-2"><SyncBadge /></span>
     </nav>
   );
 }

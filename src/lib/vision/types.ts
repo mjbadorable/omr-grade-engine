@@ -204,6 +204,8 @@ export interface ScanOptions {
   curlCorrection?: boolean;
   /** reject sheets whose QR identifies a different template (default true) */
   requireTemplateMatch?: boolean;
+  /** field-calibration overrides of the fill decision (see tuning.ts); defaults are the tuned baseline */
+  tuning?: { inkLevel?: number; fillCoverage?: number };
   onTelemetry?: (t: ScanTelemetry) => void;
   /** receives a copy of the de-warped 8-bit sheet (for review overlays) */
   onCanonical?: (img: { width: number; height: number; gray: Uint8Array }) => void;

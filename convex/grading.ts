@@ -154,9 +154,14 @@ export const listKeyVersions = query({
  * the analytics snapshot is recomputed in the background.
  */
 export const updateAnswerKey = mutation({
-  args: { examId: v.id("exams"), baseVersion: v.number(), key: v.object(answerKeyBody) },
-  handler: async (ctx, { examId, baseVersion, key }) => {
+  args: { examId: v.id("exams"), baseVersion: v.number(), key: v.object(answerKeyBody), clientKeyId: v.optional(v.string()) },
+  handler: async (ctx, { examId, baseVersion, key, clientKeyId }) => {
     const { exam, user } = await requireExam(ctx, examId, "teacher");
+    // Offline replay: if this exact queued save already landed (e.g. the response was lost), report it again.
+    if (clientKeyId) {
+      const done = await ctx.db.query("answerKeys").withIndex("by_exam_client", (q) => q.eq("examId", examId).eq("clientKeyId", clientKeyId)).unique();
+      if (done) return { version: done.version };
+    }
     if (baseVersion !== exam.currentKeyVersion)
       throw new ConvexError({ code: "KEY_VERSION_CONFLICT", message: "Someone saved a newer answer key.", currentVersion: exam.currentKeyVersion });
     const current = await ctx.db.query("answerKeys").withIndex("by_exam_version", (q) => q.eq("examId", examId).eq("version", exam.currentKeyVersion)).unique();
@@ -170,7 +175,7 @@ export const updateAnswerKey = mutation({
       if (r.type === "choice" && r.correct.some((o) => o < 0 || o >= r.optionCount)) fail("INVALID_KEY", `Question ${n}: correct option out of range.`);
     }
     const version = exam.currentKeyVersion + 1;
-    await ctx.db.insert("answerKeys", { examId, version, ...key, createdBy: user._id });
+    await ctx.db.insert("answerKeys", { examId, version, ...key, createdBy: user._id, ...(clientKeyId ? { clientKeyId } : {}) });
     await bumpRevision(ctx, exam, { currentKeyVersion: version });
     return { version };
   },
@@ -219,13 +224,18 @@ export const listOverrides = query({
 
 /** Pick the scan that counts for a student scanned more than once with different answers. */
 export const resolveConflict = mutation({
-  args: { examId: v.id("exams"), rollKey: v.string(), keepScanId: v.id("scans") },
-  handler: async (ctx, { examId, rollKey: key, keepScanId }) => {
+  args: { examId: v.id("exams"), rollKey: v.string(), keepScanId: v.id("scans"), clientId: v.optional(v.string()), timestamp: v.optional(v.number()) },
+  handler: async (ctx, { examId, rollKey: key, keepScanId, clientId, timestamp }) => {
     const { exam, user } = await requireExam(ctx, examId, "teacher");
+    if (clientId) {
+      const done = await ctx.db.query("conflictResolutions").withIndex("by_exam_client", (q) => q.eq("examId", examId).eq("clientId", clientId)).unique();
+      if (done) return done._id;
+    }
     const group = await ctx.db.query("scans").withIndex("by_exam_roll", (q) => q.eq("examId", examId).eq("rollKey", key)).collect();
     if (!group.some((s) => s._id === keepScanId)) fail("NOT_FOUND", "That scan is not part of this student's group.");
     const id = await ctx.db.insert("conflictResolutions", {
-      examId, rollKey: key, keepScanId, supersededScanIds: group.filter((s) => s._id !== keepScanId).map((s) => s._id), teacherId: user._id, timestamp: Date.now(),
+      examId, rollKey: key, keepScanId, supersededScanIds: group.filter((s) => s._id !== keepScanId).map((s) => s._id), teacherId: user._id, timestamp: timestamp ?? Date.now(),
+      ...(clientId ? { clientId } : {}),
     });
     await bumpRevision(ctx, exam);
     return id;

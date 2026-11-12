@@ -22,7 +22,7 @@ export function emailDomain(email: string): string | null {
 
 export type AccessDecision =
   | { ok: true; email: string }
-  | { ok: false; code: "EMAIL_REQUIRED" | "EMAIL_NOT_VERIFIED" | "DOMAIN_NOT_ALLOWED"; message: string; email?: string };
+  | { ok: false; code: "EMAIL_REQUIRED" | "EMAIL_NOT_VERIFIED" | "DOMAIN_NOT_ALLOWED" | "DEV_AUTH_DISABLED"; message: string; email?: string };
 
 /** Decide from the identity claims issued by the auth provider (Clerk: email, email_verified). */
 export function checkInstitutionalEmail(

@@ -17,7 +17,8 @@ import { useDevAuth } from "@/lib/cloud/dev-auth";
 
 const url = process.env.NEXT_PUBLIC_CONVEX_URL;
 const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-export const AUTH_MODE: "clerk" | "dev" | "none" = clerkKey ? "clerk" : process.env.NEXT_PUBLIC_OMR_AUTH === "dev" ? "dev" : "none";
+// Dev tokens are never offered in a production build, whatever NEXT_PUBLIC_OMR_AUTH says.
+export const AUTH_MODE: "clerk" | "dev" | "none" = clerkKey ? "clerk" : process.env.NEXT_PUBLIC_OMR_AUTH === "dev" && process.env.NODE_ENV !== "production" ? "dev" : "none";
 const convex = url ? new ConvexReactClient(url) : null;
 
 export default function ConvexClientProvider({ children }: { children: ReactNode }) {
