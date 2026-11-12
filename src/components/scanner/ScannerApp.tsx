@@ -159,34 +159,23 @@ export default function ScannerApp() {
           </button>
         </div>
         <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${engine.state === "ready" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : engine.state === "error" ? "bg-red-100 text-red-700" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`}>
-          {engine.state === "ready" ? `Vision engine ready · ${engine.ms} ms` : engine.state === "error" ? `Engine failed: ${engine.message}` : "Loading vision engine (OpenCV, cached after first use)…"}
+          {engine.state === "ready" ? "Scanner Ready" : engine.state === "error" ? `Scanner unavailable: ${engine.message}` : "Starting scanner…"}
         </span>
       </div>
 
       <div className="grid flex-1 gap-4 p-4 lg:grid-cols-[380px_1fr]">
         <section className="space-y-4">
-          <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Template</h2>
+          <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950" data-testid="scan-exam">
+            <h2 className="mb-1 text-xs font-semibold uppercase tracking-wider text-zinc-500">Active exam</h2>
             {template ? (
               <p className="text-sm">
-                <span className="font-medium">{template.title || template.templateId}</span>
-                <span className="ml-2 font-mono text-xs text-zinc-500">{template.templateId} · v{template.version} · #{template.layoutHash}</span>
-                <span className="block text-xs text-zinc-500">{template.questionCount} questions · {template.pages.length} page(s)</span>
+                <span className="font-medium">{template.title || "Untitled exam"}</span>
+                <span className="block text-xs text-zinc-500">{template.questionCount} questions · {template.pages.length} page{template.pages.length === 1 ? "" : "s"}</span>
               </p>
             ) : (
-              <p className="text-sm text-zinc-500">No template yet. Design one, or load a <code>template-coordinates.json</code>.</p>
+              <p className="text-sm text-zinc-500">No exam yet. Design one in <b>1 · Design</b> and it appears here.</p>
             )}
-            <label className={`${btn} mt-3 cursor-pointer border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}>
-              Load template JSON
-              <input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => onTemplateFile(e.target.files?.[0])} />
-            </label>
-            {templateError && <p className="mt-2 text-xs text-red-600">{templateError}</p>}
           </div>
-
-          <CalibrationDrawer
-            tuning={tuning} onTuning={updateTuning} diagnostics={diagnostics} onDiagnostics={toggleDiagnostics}
-            calibrationMode={calibrationMode} onCalibrationMode={setCalibrationMode}
-          />
 
           <div className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
             <div className="mb-3 flex gap-1" role="tablist">
@@ -206,6 +195,22 @@ export default function ScannerApp() {
               <CameraPanel client={client.current} enabled={ready} rearmRef={rearm} onCapture={(bmp) => runScan(`camera ${new Date().toLocaleTimeString()}`, bmp)} />
             )}
           </div>
+
+          <details className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950" data-testid="advanced-scanner">
+            <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Advanced Scanner Settings</summary>
+            <div className="space-y-3 border-t border-zinc-100 p-3 dark:border-zinc-800">
+              <label className={`${btn} cursor-pointer border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}>
+                Load template JSON
+                <input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => onTemplateFile(e.target.files?.[0])} />
+              </label>
+              {templateError && <p className="text-xs text-red-600">{templateError}</p>}
+          <CalibrationDrawer
+            tuning={tuning} onTuning={updateTuning} diagnostics={diagnostics} onDiagnostics={toggleDiagnostics}
+            calibrationMode={calibrationMode} onCalibrationMode={setCalibrationMode}
+          />
+
+            </div>
+          </details>
 
           {jobs.length > 0 && (
             <ul className="divide-y divide-zinc-100 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950">
@@ -283,9 +288,8 @@ function JobDetail({ job, template, diagnostics, tuning, onRescan }: { job: Job;
           <dt className="text-zinc-500">Roll number</dt><dd className="font-mono">{f.rollNumber ?? f.rollDigits.map((d) => d ?? "?").join("") ?? "-"}</dd>
           <dt className="text-zinc-500">Exam set</dt><dd className="font-mono">{f.examSet ?? "-"}</dd>
           <dt className="text-zinc-500">Page</dt><dd>{r.pageIndex + 1}{r.qr.rotated180 ? " (was upside down)" : ""}</dd>
-          <dt className="text-zinc-500">QR</dt><dd>{r.qr.matchesTemplate ? "matches template" : "not read"}</dd>
-          <dt className="text-zinc-500">Ref. marks</dt><dd>{Math.round(r.markDetectRatio * 100)}% · max curl {Math.max(...r.referenceMarks.map((m) => m.offsetMm)).toFixed(1)} mm</dd>
-          <dt className="text-zinc-500">Time</dt><dd>{r.timingsMs.total} ms</dd>
+          {diagnostics && <><dt className="text-zinc-500">QR</dt><dd>{r.qr.matchesTemplate ? "matches template" : "not read"}</dd></>}
+          {diagnostics && <><dt className="text-zinc-500">Ref. marks</dt><dd>{Math.round(r.markDetectRatio * 100)}% · max curl {Math.max(...r.referenceMarks.map((m) => m.offsetMm)).toFixed(1)} mm</dd><dt className="text-zinc-500">Time</dt><dd>{r.timingsMs.total} ms</dd></>}
         </dl>
         {f.conflicts.length > 0 && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-500/30 dark:bg-amber-500/10">

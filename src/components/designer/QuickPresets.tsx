@@ -1,6 +1,6 @@
 "use client";
 /** ZipGrade-style one-click forms: pick a length, get a print-ready sheet (5-digit ID, sets A/B/C/D). */
-import { activeQuickPreset, applyQuickPreset, QUICK_PRESETS } from "@/lib/omr/presets";
+import { activeQuickPreset, applyQuickPreset, PRESETS, QUICK_PRESETS } from "@/lib/omr/presets";
 import type { LayoutSettings } from "@/lib/omr/schema";
 
 export default function QuickPresets({ settings, onApply }: { settings: LayoutSettings; onApply: (s: LayoutSettings) => void }) {
@@ -20,7 +20,16 @@ export default function QuickPresets({ settings, onApply }: { settings: LayoutSe
           );
         })}
       </div>
-      <p className="text-[11px] text-zinc-500">One tap configures the sheet; then click <b>Download PDF</b>.</p>
+      <p className="text-[11px] text-zinc-500">One tap configures the sheet; then click <b>Download Answer Sheet (PDF)</b>.</p>
+      <details className="text-xs" data-testid="more-templates">
+        <summary className="cursor-pointer text-indigo-600 hover:underline">More templates…</summary>
+        <ul className="mt-1.5 space-y-1">
+          {PRESETS.filter((p) => !p.id.startsWith("zg-")).map((p) => (
+            <li key={p.id}><button type="button" className="w-full rounded-md border border-zinc-200 px-2 py-1 text-left hover:border-indigo-400 dark:border-zinc-700"
+              onClick={() => onApply({ ...p.settings, templateId: settings.templateId })}>{p.name}</button></li>
+          ))}
+        </ul>
+      </details>
     </section>
   );
 }

@@ -2,8 +2,9 @@
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { SHEET_PRINTED_EVENT, TEMPLATE_CHANGED_EVENT } from "@/lib/active-exam";
+import { sheetSummary } from "@/lib/omr/summary";
 import { computeLayout, type LayoutResult } from "@/lib/omr/layout-engine";
-import { DEFAULT_SETTINGS, PRESETS } from "@/lib/omr/presets";
+import { DEFAULT_SETTINGS } from "@/lib/omr/presets";
 import { writeStoredTemplate } from "@/lib/storage/template-store";
 import type { LayoutSettings } from "@/lib/omr/schema";
 import DebugDrawer, { IssueList } from "./DebugDrawer";
@@ -56,6 +57,7 @@ export default function SheetDesigner() {
   const pages = result?.template.pages.length ?? 0;
   const page = Math.min(pageIndex, Math.max(0, pages - 1));
   const canExport = !!result && "result" in outcome && errors.length === 0 && !stale;
+  const summary = result ? sheetSummary({ questions: result.stats.questions, pages, paper: settings.paper, layoutErrors: errors.length }) : null;
 
   // Hand the current valid template to the scanner page (same browser).
   useEffect(() => {
@@ -92,37 +94,20 @@ export default function SheetDesigner() {
   return (
     <div className="flex flex-col" style={{ height: "calc(100dvh - var(--app-header-h, 56px))" }}>
       <div role="toolbar" aria-label="Sheet actions" data-testid="page-toolbar" className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-200 bg-zinc-50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900/40">
-        <select aria-label="Load preset" className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
-          value="" onChange={(e) => {
-            const p = PRESETS.find((x) => x.id === e.target.value);
-            if (p) { setSettings((s) => ({ ...p.settings, templateId: s.templateId })); setPageIndex(0); }
-          }}>
-          <option value="" disabled>Load preset…</option>
-          {PRESETS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-        {result && (
-          <div className="hidden items-center gap-3 font-mono text-xs text-zinc-500 md:flex">
-            <span>{result.stats.questions} Q</span>
-            <span>{result.stats.bubbles} bubbles</span>
-            <span>{pages} page{pages === 1 ? "" : "s"}</span>
-            <span>{result.stats.marksPerPage} marks/page</span>
-            <span title="Layout hash (first 64 bits of SHA-256)">#{result.template.layoutHash}</span>
-          </div>
+        {result && summary && (
+          <span data-testid="sheet-summary" data-tone={summary.tone} role="status"
+            className={`rounded-full px-3 py-1 text-sm font-medium ${summary.tone === "ok" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" : summary.tone === "warn" ? "bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200" : "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"}`}>
+            {summary.text}
+            {summary.tone === "error" && <button type="button" className="ml-2 underline" onClick={() => setDrawer("issues")}>Details</button>}
+          </span>
         )}
         <div className="ml-auto flex items-center gap-2">
           <button type="button" disabled={kitBusy} className={`${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}
-            title="20-question PDF, answer key, roster CSV and 5 simulated scans in one zip" onClick={downloadKit}>
-            {kitBusy ? "Building kit…" : "Sample exam kit"}
-          </button>
-          <button type="button" className={`${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`} onClick={() => setDrawer(drawer ? null : "json")}>
-            {"{ }"} Inspect JSON
-          </button>
-          <button type="button" disabled={!canExport} className={`${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}
-            onClick={() => { if (!result) return; download(`template-coordinates.json`, JSON.stringify(result.template, null, 2), "application/json"); window.dispatchEvent(new CustomEvent(SHEET_PRINTED_EVENT, { detail: result.template.layoutHash })); }}>
-            Download JSON
+            title="A ready-made 20-question exam with answer key, class list and practice scans" onClick={downloadKit}>
+            {kitBusy ? "Preparing…" : "Load Sample Exam"}
           </button>
           <button type="button" disabled={!canExport || busy} className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`} onClick={exportPdf}>
-            {busy ? "Generating…" : "Download PDF"}
+            {busy ? "Preparing PDF…" : "Download Answer Sheet (PDF)"}
           </button>
         </div>
       </div>
@@ -135,11 +120,24 @@ export default function SheetDesigner() {
           <div className="space-y-6">
             <QuickPresets settings={settings} onApply={(s) => { setSettings(s); setPageIndex(0); }} />
             <SettingsPanel settings={settings} onChange={setSettings} />
+            <details className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800" data-testid="developer-tools">
+              <summary className="cursor-pointer text-sm font-medium">Advanced / Developer Tools</summary>
+              <div className="mt-3 space-y-2 text-sm">
+                <label className="flex items-center gap-2 text-zinc-600 dark:text-zinc-400"><input type="checkbox" className="accent-indigo-600" checked={overlays.cells} onChange={(e) => setOverlays((o) => ({ ...o, cells: e.target.checked }))} /> Show reference cells</label>
+                <label className="flex items-center gap-2 text-zinc-600 dark:text-zinc-400"><input type="checkbox" className="accent-indigo-600" checked={overlays.bboxes} onChange={(e) => setOverlays((o) => ({ ...o, bboxes: e.target.checked }))} /> Show bounding boxes</label>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button type="button" className={`${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`} onClick={() => setDrawer(drawer ? null : "json")}>{"{ }"} Inspect JSON</button>
+                  <button type="button" disabled={!canExport} className={`${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}
+                    onClick={() => { if (!result) return; download(`template-coordinates.json`, JSON.stringify(result.template, null, 2), "application/json"); window.dispatchEvent(new CustomEvent(SHEET_PRINTED_EVENT, { detail: result.template.layoutHash })); }}>Download JSON</button>
+                </div>
+                {result && <p className="font-mono text-[11px] text-zinc-500">{result.stats.bubbles} bubbles · {result.stats.marksPerPage} marks/page · #{result.template.layoutHash}</p>}
+              </div>
+            </details>
           </div>
         </aside>
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="flex flex-wrap items-center gap-3 border-b border-zinc-200 px-4 py-2 text-sm dark:border-zinc-800">
+          {pages > 1 && <div className="flex flex-wrap items-center gap-3 border-b border-zinc-200 px-4 py-2 text-sm dark:border-zinc-800">
             <div className="flex gap-1" role="tablist" aria-label="Pages">
               {Array.from({ length: pages }, (_, i) => (
                 <button key={i} role="tab" aria-selected={i === page} type="button" onClick={() => setPageIndex(i)}
@@ -148,17 +146,7 @@ export default function SheetDesigner() {
                 </button>
               ))}
             </div>
-            <label className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
-              <input type="checkbox" className="accent-indigo-600" checked={overlays.cells} onChange={(e) => setOverlays((o) => ({ ...o, cells: e.target.checked }))} /> Reference cells
-            </label>
-            <label className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
-              <input type="checkbox" className="accent-indigo-600" checked={overlays.bboxes} onChange={(e) => setOverlays((o) => ({ ...o, bboxes: e.target.checked }))} /> Bounding boxes
-            </label>
-            <button type="button" onClick={() => setDrawer("issues")}
-              className={`ml-auto rounded-full px-2.5 py-0.5 text-xs font-medium ${errors.length ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"}`}>
-              {errors.length ? `${errors.length} layout error${errors.length > 1 ? "s" : ""}` : "Layout valid"}
-            </button>
-          </div>
+          </div>}
 
           <div className={`min-h-0 flex-1 overflow-auto p-4 sm:p-8 ${drawer ? "pb-[48vh]" : ""}`}>
             {"error" in outcome && (

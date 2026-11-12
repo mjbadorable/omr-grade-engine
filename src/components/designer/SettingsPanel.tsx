@@ -102,12 +102,14 @@ function SectionCard({ section, index, total, onChange, onRemove, onMove }: {
         <Field label="Questions">{(id) => <NumberInput id={id} value={section.questionCount} min={1} max={section.type === "mcq" ? 200 : 20} presets={QUICK_COUNTS} onChange={(v) => onChange({ ...section, questionCount: v })} />}</Field>
         {section.type === "mcq" && (
           <>
-            <Field label="Options">{(id) => (
-              <NumberInput id={id} value={section.optionStyle === "true-false" ? 2 : section.optionCount} min={2} max={10}
-                onChange={(v) => onChange({ ...section, optionCount: v, optionStyle: section.optionStyle === "true-false" ? "letters" : section.optionStyle })} />
+            <Field label="Answer choices">{(id) => (
+              <select id={id} className={inputCls} value={section.optionStyle === "true-false" ? 2 : section.optionCount}
+                onChange={(e) => onChange({ ...section, optionCount: Number(e.target.value), optionStyle: section.optionStyle === "true-false" ? "letters" : section.optionStyle })}>
+                {[2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => <option key={n} value={n}>{`${n} (A–${String.fromCharCode(64 + n)})`}</option>)}
+              </select>
             )}</Field>
             <div className="col-span-2">
-              <Field label="Labels">{(id) => (
+              <Field label="Choice labels">{(id) => (
                 <select id={id} className={inputCls} value={section.optionStyle}
                   onChange={(e) => {
                     const style = e.target.value as typeof section.optionStyle;
@@ -148,49 +150,34 @@ export default function SettingsPanel({ settings, onChange }: { settings: Layout
   return (
     <div className="space-y-6">
       <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Sheet</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Exam details</h2>
         <Field label="Exam name (printed title)">{(id) => <input id={id} className={inputCls} value={settings.title} maxLength={80} onChange={(e) => set("title", e.target.value)} />}</Field>
-        <Field label="Subtitle">{(id) => <input id={id} className={inputCls} value={settings.subtitle} maxLength={80} onChange={(e) => set("subtitle", e.target.value)} />}</Field>
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Paper">{(id) => (
-            <select id={id} className={inputCls} value={settings.paper} onChange={(e) => set("paper", e.target.value as LayoutSettings["paper"])}>
-              <option value="A4">A4 (210 × 297 mm)</option>
-              <option value="LETTER">US Letter</option>
-            </select>
-          )}</Field>
-          <Field label="Answer columns">{(id) => <NumberInput id={id} value={settings.columns} min={1} max={6} onChange={(v) => set("columns", v)} />}</Field>
-        </div>
-        <Field label={`Bubble diameter · ${settings.bubbleDiameterMm.toFixed(1)} mm`} hint="Row pitch = d + 1.4 mm · reference mark every 5 rows">
-          {(id) => (
-            <input id={id} type="range" min={3.2} max={6} step={0.1} className="w-full accent-indigo-600" value={settings.bubbleDiameterMm}
-              onChange={(e) => set("bubbleDiameterMm", Math.round(Number(e.target.value) * 10) / 10)} />
-          )}
-        </Field>
+        <Field label="Course / subtitle">{(id) => <input id={id} className={inputCls} value={settings.subtitle} maxLength={80} placeholder="e.g. IT 321 Information Assurance and Security 1" onChange={(e) => set("subtitle", e.target.value)} />}</Field>
+        <Field label="Paper size">{(id) => (
+          <select id={id} className={inputCls} value={settings.paper} onChange={(e) => set("paper", e.target.value as LayoutSettings["paper"])}>
+            <option value="A4">A4</option>
+            <option value="LETTER">Letter</option>
+          </select>
+        )}</Field>
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Identity</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Student ID &amp; exam sets</h2>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Roll number digits" hint="0 = none">{(id) => <NumberInput id={id} value={settings.rollDigits} min={0} max={10} onChange={(v) => set("rollDigits", v)} />}</Field>
-          <Field label="First roll row">{(id) => (
-            <select id={id} className={inputCls} value={settings.rollStartDigit} onChange={(e) => set("rollStartDigit", Number(e.target.value) as 0 | 1)}>
-              <option value={0}>0 1 2 … 9</option>
-              <option value={1}>1 2 … 9 0</option>
-            </select>
-          )}</Field>
-          <Field label="Exam sets" hint="0 = no set selector">{(id) => (
+          <Field label="Student ID length" hint="0 = no ID grid">{(id) => <NumberInput id={id} value={settings.rollDigits} min={0} max={10} onChange={(v) => set("rollDigits", v)} />}</Field>
+          <Field label="Exam sets">{(id) => (
             <select id={id} className={inputCls} value={settings.examSets} onChange={(e) => set("examSets", Number(e.target.value))}>
-              <option value={0}>None</option>
+              <option value={0}>No sets</option>
               {[2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{"ABCDEF".slice(0, n).split("").join(" / ")}</option>)}
             </select>
           )}</Field>
-          <div className="flex items-end pb-2"><Toggle label="Name / class / signature" checked={settings.nameField} onChange={(v) => set("nameField", v)} /></div>
         </div>
+        <Toggle label="Name / class / signature lines" checked={settings.nameField} onChange={(v) => set("nameField", v)} />
       </section>
 
       <section className="space-y-3">
         <div className="flex items-center">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Sections</h2>
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Question sections</h2>
           <span className="ml-auto text-xs text-zinc-500">{settings.sections.reduce((n, s) => n + s.questionCount, 0)} questions</span>
         </div>
         {settings.sections.map((sec, i) => (
@@ -207,24 +194,39 @@ export default function SettingsPanel({ settings, onChange }: { settings: Layout
           {(["mcq", "numeric", "matrix"] as const).map((t) => (
             <button key={t} type="button" onClick={() => set("sections", [...settings.sections, defaultSection(t)])}
               className="rounded-md border border-dashed border-zinc-300 px-2 py-1.5 text-xs font-medium text-zinc-600 hover:border-indigo-400 hover:text-indigo-600 dark:border-zinc-700 dark:text-zinc-400">
-              + {t === "mcq" ? "MCQ" : t === "numeric" ? "Numeric" : "Matrix"}
+              + {t === "mcq" ? "Multiple choice" : t === "numeric" ? "Numeric" : "Matching"}
             </button>
           ))}
         </div>
       </section>
 
-      <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Template identity</h2>
-        <div className="grid grid-cols-3 gap-2">
-          <div className="col-span-2">
-            <Field label="Template ID">{(id) => (
-              <input id={id} className={`${inputCls} font-mono text-xs`} value={settings.templateId} maxLength={40}
-                onChange={(e) => { const v = e.target.value.replace(/[^A-Za-z0-9_-]/g, ""); if (v) set("templateId", v); }} />
-            )}</Field>
+      <details className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800" data-testid="advanced-layout">
+        <summary className="cursor-pointer text-sm font-medium">Advanced Layout Settings</summary>
+        <div className="mt-3 space-y-3">
+          <Field label="Answer columns">{(id) => <NumberInput id={id} value={settings.columns} min={1} max={6} onChange={(v) => set("columns", v)} />}</Field>
+          <Field label={`Bubble size · ${settings.bubbleDiameterMm.toFixed(1)} mm`}>
+            {(id) => (
+              <input id={id} type="range" min={3.2} max={6} step={0.1} className="w-full accent-indigo-600" value={settings.bubbleDiameterMm}
+                onChange={(e) => set("bubbleDiameterMm", Math.round(Number(e.target.value) * 10) / 10)} />
+            )}
+          </Field>
+          <Field label="Student ID digit order">{(id) => (
+            <select id={id} className={inputCls} value={settings.rollStartDigit} onChange={(e) => set("rollStartDigit", Number(e.target.value) as 0 | 1)}>
+              <option value={0}>0 1 2 … 9</option>
+              <option value={1}>1 2 … 9 0</option>
+            </select>
+          )}</Field>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="col-span-2">
+              <Field label="Template ID">{(id) => (
+                <input id={id} className={`${inputCls} font-mono text-xs`} value={settings.templateId} maxLength={40}
+                  onChange={(e) => { const v = e.target.value.replace(/[^A-Za-z0-9_-]/g, ""); if (v) set("templateId", v); }} />
+              )}</Field>
+            </div>
+            <Field label="Version">{(id) => <NumberInput id={id} value={settings.version} min={1} max={9999} onChange={(v) => set("version", v)} />}</Field>
           </div>
-          <Field label="Version">{(id) => <NumberInput id={id} value={settings.version} min={1} max={9999} onChange={(v) => set("version", v)} />}</Field>
         </div>
-      </section>
+      </details>
     </div>
   );
 }

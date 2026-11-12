@@ -5,6 +5,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { EmptyHero } from "@/components/brand/Brand";
 import { useCloudSession } from "@/components/cloud/CloudSession";
 import { BRAND } from "@/lib/brand";
+import { answerKeyStatus } from "@/lib/grading/status";
 import { useCloudExam } from "@/components/cloud/CloudExam";
 import { answerKeyToBody } from "@/lib/cloud/convert";
 import { renderScorecards } from "@/lib/export/scorecard-client";
@@ -372,10 +373,10 @@ export default function GradeApp() {
   return (
     <div className="flex min-h-dvh flex-col">
       <div role="toolbar" aria-label="Gradebook actions" data-testid="page-toolbar" className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-200 bg-zinc-50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900/40">
-        <span className="truncate text-sm text-zinc-500">{template.title} · <span className="font-mono text-xs">#{template.layoutHash}</span></span>
+        <span className="truncate text-sm text-zinc-500">{template.title}</span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <span data-testid="key-status" className="rounded-full bg-zinc-100 px-2.5 py-0.5 font-mono text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title="Every edit creates a new key version and rescores all sheets">
-            {cloud ? `cloud key v${cloudBase.current ?? key.version}${cloudSaving ? " · saving…" : ""}` : `key v${key.version}`} · {keyed}/{key.questions.size} keyed · {graded?.sheets.length ?? 0} sheets in {graded ? graded.ms.toFixed(0) : "–"} ms
+          <span data-testid="key-status" className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300" title="Changing the answer key rescores every paper instantly">
+            {answerKeyStatus({ keyed, total: key.questions.size, papers: graded?.sheets.length ?? 0, saving: !!cloud && cloudSaving })}
           </span>
           {!cloudSession && <SyncPanel pending={pending} teacherId={who.teacherId} endpoint={who.endpoint}
             onTeacher={(v) => { setTeacherId(v); setWho((w) => ({ ...w, teacherId: identity().teacherId })); }}

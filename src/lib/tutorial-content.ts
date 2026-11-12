@@ -10,7 +10,7 @@ export const TUTORIAL: TutorialSection[] = [
     steps: [
       { icon: "upload", title: "Auto-configure via syllabus (optional)", body: "Drop your USA course syllabus PDF into the top banner. VERITAS extracts the Course Outcomes (CO), Program Outcomes (PO) and exam metadata, and builds the Table of Specifications for you." },
       { icon: "sliders", title: "Customize layout & identity", body: "Tap a Quick Preset (20, 50 or 100 items) for a print-ready sheet in one click, then fine-tune paper size, roll number digits, exam set codes (A/B/C/D) and question sections (MCQ, True/False, Numeric) in the sidebar." },
-      { icon: "download", title: "Validate & export a print-ready PDF", body: "Check the green “Layout valid” badge, then click “Download PDF” to print your official answer sheets, or “Download JSON” to save the template." },
+      { icon: "download", title: "Validate & export a print-ready PDF", body: "Check the green “Ready to Print” summary at the top, then click “Download Answer Sheet (PDF)” to print your official answer sheets. Layout and developer options are tucked away under “Advanced”." },
     ],
     tipTitle: "Pro Tip", tip: "Always print at “100% / Actual Size” (never “Fit to Page”) so the corner fiducial markers align cleanly during scanning.",
   },
