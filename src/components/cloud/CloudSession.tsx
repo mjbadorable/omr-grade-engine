@@ -33,7 +33,12 @@ export interface CloudSessionValue {
   signOut: () => void;
   orgs: { _id: Id<"orgs">; name: string; role: string }[] | undefined;
   /** the single institutional workspace (provisioned and joined automatically); role null = not (yet) a member */
-  workspace: { orgId: Id<"orgs"> | null; name: string; role: Role | null; ready: boolean };
+  workspace: {
+    orgId: Id<"orgs"> | null; name: string; role: Role | null; ready: boolean;
+    /** member = approved; none / pending / rejected = signed in but not faculty (students share @usa.edu.ph) */
+    access: "loading" | "member" | "none" | "pending" | "rejected";
+    requestAccess: () => Promise<void>;
+  };
   exams: { _id: Id<"exams">; name: string; layoutHash: string; status: string; currentKeyVersion: number; examPeriod?: string | null; syllabusId?: Id<"syllabi"> | null }[] | undefined;
   selection: Selection;
   selectExam: (examId: Id<"exams"> | null) => void;
@@ -86,6 +91,8 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
 
   // Single institution: join (and if needed create) the USA workspace once, then bind to it.
   const ensureDefaultM = useMutation(api.orgs.ensureDefault);
+  const myAccess = useQuery(api.orgs.myAccess, ready ? {} : "skip");
+  const requestAccessM = useMutation(api.orgs.requestAccess);
   const ensuring = useRef(false);
   const defaultOrg = orgs?.find((o) => o.name === DEFAULT_ORG_NAME) ?? null;
   useEffect(() => {
@@ -133,7 +140,11 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
     authMode, isLoading, isAuthenticated, me, access,
     signInDev: (t) => setDevToken(t), signOut: () => setDevToken(null),
     orgs, exams, selection, examTemplate,
-    workspace: { orgId: defaultOrg?._id ?? null, name: DEFAULT_ORG_NAME, role: (defaultOrg?.role as Role | undefined) ?? null, ready: !!defaultOrg },
+    workspace: {
+      orgId: defaultOrg?._id ?? null, name: DEFAULT_ORG_NAME, role: (defaultOrg?.role as Role | undefined) ?? null, ready: !!defaultOrg,
+      access: !ready || myAccess === undefined || !myAccess.orgId ? "loading" : defaultOrg || myAccess.role ? "member" : myAccess.request === "pending" ? "pending" : myAccess.request === "rejected" ? "rejected" : "none",
+      requestAccess: async () => { await requestAccessM({}); },
+    },
     selectExam: (examId) => persist({ ...selection, examId, layoutHash: exams?.find((e) => e._id === examId)?.layoutHash ?? null }),
     createExam: async (name, template, plan) => {
       const orgId = selection.orgId!;

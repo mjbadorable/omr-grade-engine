@@ -4,7 +4,7 @@ import { mutation, query } from "./_generated/server";
 import { emailAllowedByPolicy } from "../src/lib/admin/formula";
 import { checkRoleChange } from "../src/lib/roles/policy";
 import { DEFAULT_ORG_NAME } from "../src/lib/institution";
-import { autoJoinRole, defaultAdminEmails, ensureDefaultAdmin, fail, logAudit, requireRole, requireUser } from "./lib/access";
+import { autoJoinRole, bindPreAuthorizations, defaultAdminEmails, ensureDefaultAdmin, fail, logAudit, requireRole, requireUser } from "./lib/access";
 import { role } from "./validators";
 
 export const create = mutation({
@@ -63,7 +63,7 @@ export const addMember = mutation({
 /**
  * Single-institution workspace: find or create "University of San Agustin • Iloilo City" and make
  * sure the caller belongs to it, so faculty never pick or create a school. The caller joins with
- * the OMR_AUTO_JOIN role (default teacher; "off" = admins add people by hand). DEFAULT_ADMIN_EMAILS
+ * the OMR_AUTO_JOIN role only when it is set to teacher / viewer (default "off": students share the domain, so nobody joins without pre-authorization or approval). DEFAULT_ADMIN_EMAILS
  * users become admin, and the first of them to arrive owns a brand-new workspace. Idempotent.
  */
 export const ensureDefault = mutation({
@@ -84,6 +84,7 @@ export const ensureDefault = mutation({
       await ctx.db.insert("memberships", { orgId: org._id, userId: user._id, role: "owner" });
       m = await find();
     }
+    if (!m) { await bindPreAuthorizations(ctx, user); m = await find(); }
     if (!m) { await ensureDefaultAdmin(ctx, org._id, user); m = await find(); }
     if (!m) {
       const role = autoJoinRole();
@@ -93,5 +94,36 @@ export const ensureDefault = mutation({
       m = await find();
     }
     return { orgId: org._id, role: m?.role ?? null };
+  },
+});
+
+/** Where the signed-in account stands in the workspace (drives the "Faculty Access Required" gate). */
+export const myAccess = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    const org = await ctx.db.query("orgs").withIndex("by_name", (q) => q.eq("name", DEFAULT_ORG_NAME)).first();
+    if (!org) return { orgId: null, role: null, request: null as null | "pending" | "approved" | "rejected" };
+    const m = await ctx.db.query("memberships").withIndex("by_org_user", (q) => q.eq("orgId", org._id).eq("userId", user._id)).unique();
+    const req = await ctx.db.query("accessRequests").withIndex("by_org_user", (q) => q.eq("orgId", org._id).eq("userId", user._id)).unique();
+    return { orgId: org._id, role: m?.role ?? null, request: req?.status ?? null };
+  },
+});
+
+/** An unauthorized account asks for faculty access; admins approve or reject in /admin. Idempotent. */
+export const requestAccess = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await requireUser(ctx);
+    const org = await ctx.db.query("orgs").withIndex("by_name", (q) => q.eq("name", DEFAULT_ORG_NAME)).first();
+    if (!org) fail("NOT_FOUND", "The workspace is not ready yet. Reload and try again.");
+    const m = await ctx.db.query("memberships").withIndex("by_org_user", (q) => q.eq("orgId", org._id).eq("userId", user._id)).unique();
+    if (m) return { status: "approved" as const };
+    const req = await ctx.db.query("accessRequests").withIndex("by_org_user", (q) => q.eq("orgId", org._id).eq("userId", user._id)).unique();
+    const now = Date.now();
+    if (req?.status === "pending") return { status: "pending" as const };
+    if (req) await ctx.db.patch(req._id, { status: "pending", requestedAt: now, decidedBy: undefined, decidedAt: undefined, name: user.name, email: user.email ?? req.email });
+    else await ctx.db.insert("accessRequests", { orgId: org._id, userId: user._id, email: user.email ?? "", name: user.name, status: "pending", requestedAt: now });
+    return { status: "pending" as const };
   },
 });

@@ -92,3 +92,24 @@ export async function ensureDefaultAdmin(ctx: MutationCtx, orgId: Id<"orgs">, us
 }
 
 export const autoJoinRole = () => parseAutoJoin(process.env.OMR_AUTO_JOIN);
+
+/**
+ * Consume pre-authorizations for this user's email: bind them to the pre-approved role right away
+ * (never lowering an existing role), close any pending request, audit it. Returns true if bound.
+ */
+export async function bindPreAuthorizations(ctx: MutationCtx, user: Doc<"users">): Promise<boolean> {
+  if (!user.email) return false;
+  const rows = await ctx.db.query("preAuthorizations").withIndex("by_email", (q) => q.eq("email", user.email!)).collect();
+  let bound = false;
+  for (const pa of rows) {
+    const m = await ctx.db.query("memberships").withIndex("by_org_user", (q) => q.eq("orgId", pa.orgId).eq("userId", user._id)).unique();
+    if (!m) await ctx.db.insert("memberships", { orgId: pa.orgId, userId: user._id, role: pa.role });
+    else if (RANK[m.role] < RANK[pa.role]) await ctx.db.patch(m._id, { role: pa.role });
+    const req = await ctx.db.query("accessRequests").withIndex("by_org_user", (q) => q.eq("orgId", pa.orgId).eq("userId", user._id)).unique();
+    if (req && req.status === "pending") await ctx.db.patch(req._id, { status: "approved", decidedBy: pa.createdBy, decidedAt: Date.now() });
+    await ctx.db.delete(pa._id);
+    await logAudit(ctx, pa.orgId, pa.createdBy, "ROLE_CHANGE", `${user.email} signed in and was bound to ${pa.role} (pre-authorized)`);
+    bound = true;
+  }
+  return bound;
+}

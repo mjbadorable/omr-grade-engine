@@ -13,8 +13,9 @@ import { useCloudSession } from "@/components/cloud/CloudSession";
 import { AUDIT_KINDS, AUDIT_LABEL, type AuditKind } from "@/lib/admin/audit";
 import { CLASE_FORMULA, type GradingFormula, labGrade, lectureGrade, termGrade, validateFormula } from "@/lib/admin/formula";
 import { isAdmin, type Role } from "@/lib/roles/policy";
+import { parseEmailList } from "@/lib/access-requests";
 
-type Tab = "faculty" | "syllabi" | "audit" | "policy";
+type Tab = "faculty" | "access" | "syllabi" | "audit" | "policy";
 const input = "rounded border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900";
 const btn = "rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-900";
 const errText = (e: unknown) => (e as { data?: { message?: string } })?.data?.message ?? (e as Error)?.message ?? String(e);
@@ -44,7 +45,8 @@ export default function AdminPortal() {
 
 function Portal({ orgId, myUserId, role }: { orgId: Id<"orgs">; myUserId: Id<"users">; role: Role }) {
   const [tab, setTab] = useState<Tab>("faculty");
-  const tabs: [Tab, string][] = [["faculty", "Faculty"], ["syllabi", "Syllabi"], ["audit", "Audit trail"], ["policy", "Policy & grading"]];
+  const pending = useQuery(api.admin.pendingCount, { orgId });
+  const tabs: [Tab, string][] = [["faculty", "Faculty"], ["access", pending ? `Access · ${pending} pending` : "Access"], ["syllabi", "Syllabi"], ["audit", "Audit trail"], ["policy", "Policy & grading"]];
   return (
     <div className="flex flex-col">
       <div role="toolbar" aria-label="Admin sections" data-testid="page-toolbar" className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-2 text-sm dark:border-zinc-800">
@@ -58,6 +60,7 @@ function Portal({ orgId, myUserId, role }: { orgId: Id<"orgs">; myUserId: Id<"us
       </div>
       <main className="mx-auto w-full max-w-6xl flex-1 p-4">
         {tab === "faculty" && <Faculty orgId={orgId} myUserId={myUserId} />}
+        {tab === "access" && <Access orgId={orgId} />}
         {tab === "syllabi" && <Syllabi orgId={orgId} />}
         {tab === "audit" && <Audit orgId={orgId} />}
         {tab === "policy" && <Policy orgId={orgId} />}
@@ -70,9 +73,7 @@ function Portal({ orgId, myUserId, role }: { orgId: Id<"orgs">; myUserId: Id<"us
 function Faculty({ orgId, myUserId }: { orgId: Id<"orgs">; myUserId: Id<"users"> }) {
   const rows = useQuery(api.admin.listFaculty, { orgId });
   const setRole = useMutation(api.admin.setRole);
-  const addMember = useMutation(api.orgs.addMember);
   const [err, setErr] = useState<string | null>(null);
-  const [email, setEmail] = useState("");
   const [q, setQ] = useState("");
   const shown = useMemo(() => (rows ?? []).filter((r) => `${r.name} ${r.email} ${r.role}`.toLowerCase().includes(q.toLowerCase())), [rows, q]);
   const run = (f: () => Promise<unknown>) => { setErr(null); f().catch((e) => setErr(errText(e))); };
@@ -80,10 +81,7 @@ function Faculty({ orgId, myUserId }: { orgId: Id<"orgs">; myUserId: Id<"users">
     <section className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <input aria-label="Search faculty" className={`${input} w-64`} placeholder="Search name, email or role" value={q} onChange={(e) => setQ(e.target.value)} />
-        <div className="ml-auto flex gap-2">
-          <input aria-label="Faculty email" className={`${input} w-64`} placeholder="Add faculty by @usa.edu.ph email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <button type="button" className={btn} disabled={!email.includes("@")} onClick={() => run(async () => { await addMember({ orgId, email, role: "teacher" }); setEmail(""); })}>Add as teacher</button>
-        </div>
+        <p className="ml-auto text-xs text-zinc-500">Add or approve faculty in the <b>Access</b> tab.</p>
       </div>
       {err && <p role="alert" className="text-sm text-red-600">{err}</p>}
       <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
@@ -114,7 +112,67 @@ function Faculty({ orgId, myUserId }: { orgId: Id<"orgs">; myUserId: Id<"users">
           </tbody>
         </table>
       </div>
-      <p className="text-xs text-zinc-500">Teachers drop syllabi, build exams, scan and grade. Admins also manage roles, policy and the audit trail. New faculty must sign in once with their institutional account before they can be added.</p>
+      <p className="text-xs text-zinc-500">Teachers drop syllabi, build exams, scan and grade. Admins also manage roles, policy and the audit trail. Faculty become members by pre-authorization or by approving their access request.</p>
+    </section>
+  );
+}
+
+// ------------------------------------------------------------------ access
+function Access({ orgId }: { orgId: Id<"orgs"> }) {
+  const data = useQuery(api.admin.listAccess, { orgId });
+  const preAuthorize = useMutation(api.admin.preAuthorize);
+  const revoke = useMutation(api.admin.revokePreAuthorization);
+  const decide = useMutation(api.admin.decideRequest);
+  const [emails, setEmails] = useState("");
+  const [role, setRole] = useState<"teacher" | "admin">("teacher");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [grant, setGrant] = useState<Record<string, "teacher" | "admin">>({});
+  const preview = parseEmailList(emails);
+  const run = (f: () => Promise<unknown>) => { setErr(null); f().catch((e) => setErr(errText(e))); };
+  return (
+    <section className="grid gap-6 lg:grid-cols-2">
+      <div className="space-y-3" data-testid="pending-requests">
+        <h2 className="text-base font-semibold">Pending requests {data ? <span className="ml-1 rounded-full bg-gold-tint px-2 py-0.5 text-xs text-gold-hover dark:text-gold">{data.pending.length}</span> : null}</h2>
+        <p className="text-xs text-zinc-500">People signed in with an @usa.edu.ph account who asked for faculty access. Students share the domain, so approve only faculty.</p>
+        {err && <p role="alert" className="text-sm text-red-600">{err}</p>}
+        <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+          {data === undefined && <li className="px-3 py-6 text-center text-sm text-zinc-500">Loading…</li>}
+          {data && !data.pending.length && <li className="px-3 py-6 text-center text-sm text-zinc-500">No pending requests.</li>}
+          {data?.pending.map((r) => (
+            <li key={r._id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm" data-testid={`request-${r.email}`}>
+              <div className="min-w-0 flex-1"><p className="truncate font-medium">{r.name || r.email}</p><p className="truncate text-xs text-zinc-500">{r.email} · {when(r.requestedAt)}</p></div>
+              <select aria-label={`Role for ${r.email}`} className={input} value={grant[r._id] ?? "teacher"} onChange={(e) => setGrant((g) => ({ ...g, [r._id]: e.target.value as "teacher" | "admin" }))}>
+                <option value="teacher">Teacher</option><option value="admin">Admin</option>
+              </select>
+              <button type="button" className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-700" onClick={() => run(() => decide({ orgId, requestId: r._id, decision: "approve", role: grant[r._id] ?? "teacher" }))}>Approve</button>
+              <button type="button" className={btn} onClick={() => run(() => decide({ orgId, requestId: r._id, decision: "reject" }))}>Reject</button>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-base font-semibold">Pre-authorize faculty</h2>
+        <p className="text-xs text-zinc-500">Paste @usa.edu.ph emails separated by commas or new lines. They are bound to the chosen role the moment they sign in.</p>
+        <textarea aria-label="Faculty emails" className={`${input} h-28 w-full font-mono text-xs`} placeholder={"ana@usa.edu.ph\nben@usa.edu.ph, carla@usa.edu.ph"} value={emails} onChange={(e) => setEmails(e.target.value)} />
+        <div className="flex flex-wrap items-center gap-2">
+          <select aria-label="Role to grant" className={input} value={role} onChange={(e) => setRole(e.target.value as "teacher" | "admin")}><option value="teacher">Teacher</option><option value="admin">Admin</option></select>
+          <button type="button" className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40" disabled={!preview.valid.length && !preview.invalid.length}
+            onClick={() => { setMsg(null); setErr(null); preAuthorize({ orgId, emails, role }).then((r) => { setMsg({ ok: r.invalid.length === 0, text: [r.queued.length && `${r.queued.length} will be bound at first sign-in`, r.bound.length && `${r.bound.length} already signed in: bound now`, r.unchanged.length && `${r.unchanged.length} already had access`, r.invalid.length && `Not accepted: ${r.invalid.join(", ")}`].filter(Boolean).join(" · ") }); if (!r.invalid.length) setEmails(""); }).catch((e) => setErr(errText(e))); }}>
+            Authorize {preview.valid.length || ""} {preview.valid.length === 1 ? "person" : "people"}
+          </button>
+        </div>
+        {msg && <p role="status" className={`text-sm ${msg.ok ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`} data-testid="preauth-result">{msg.text}</p>}
+        <h3 className="pt-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Waiting for first sign-in ({data?.preAuthorized.length ?? 0})</h3>
+        <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+          {data && !data.preAuthorized.length && <li className="px-3 py-4 text-center text-sm text-zinc-500">None.</li>}
+          {data?.preAuthorized.map((p) => (
+            <li key={p._id} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className="min-w-0 flex-1 truncate">{p.email}</span><span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{p.role}</span>
+              <button type="button" className="text-xs text-red-600 underline" onClick={() => run(() => revoke({ orgId, id: p._id }))}>Revoke</button></li>
+          ))}
+        </ul>
+      </div>
     </section>
   );
 }

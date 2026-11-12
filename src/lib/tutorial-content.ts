@@ -35,7 +35,7 @@ export const TUTORIAL: TutorialSection[] = [
   {
     id: "admin", tab: "Admin", short: "Admin", heading: "Institutional Governance", visit: "/admin",
     steps: [
-      { icon: "users", title: "Manage faculty roles", body: "Elevate or change permissions for @usa.edu.ph accounts: Admin (governance), Teacher (build, scan and grade) or Viewer (read-only). The school owner’s role is fixed." },
+      { icon: "users", title: "Manage faculty roles", body: "Pre-authorize faculty by pasting their @usa.edu.ph emails, or approve pending “Request Faculty Access” requests with one click. Roles: Admin (governance), Teacher (build, scan and grade) or Viewer (read-only). The owner’s role is fixed." },
       { icon: "shield", title: "Domain & security policies", body: "Set the allowed institutional email domains and the global grading formula. Sign-in is always limited to verified @usa.edu.ph accounts." },
       { icon: "list", title: "Syllabi repository & audit trail", body: "Browse every uploaded syllabus and search the audit trail of answer-key updates, grade overrides, conflict resolutions and role changes." },
     ],

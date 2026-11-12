@@ -14,7 +14,8 @@ const code = async (p: Promise<unknown>) => { try { await p; return "OK"; } catc
 afterEach(() => { delete process.env.DEFAULT_ADMIN_EMAILS; delete process.env.OMR_AUTO_JOIN; });
 
 describe("ensureDefault workspace", () => {
-  it("creates the USA workspace on first call and joins every later faculty member as a teacher; idempotent", async () => {
+  it("with OMR_AUTO_JOIN=teacher, creates the USA workspace on first call and joins later faculty as teachers; idempotent", async () => {
+    process.env.OMR_AUTO_JOIN = "teacher";
     const t = convexTest(schema, modules);
     const ana = as(t, "ana"), ben = as(t, "ben");
     await ana.mutation(api.users.store, {}); await ben.mutation(api.users.store, {});
@@ -29,6 +30,7 @@ describe("ensureDefault workspace", () => {
   });
 
   it("a DEFAULT_ADMIN_EMAILS user who arrives first owns the workspace; later admins become admin", async () => {
+    process.env.OMR_AUTO_JOIN = "teacher";
     process.env.DEFAULT_ADMIN_EMAILS = "dean@usa.edu.ph, staff@usa.edu.ph";
     const t = convexTest(schema, modules);
     const dean = as(t, "dean"), staff = as(t, "staff"), ana = as(t, "ana");
@@ -41,6 +43,7 @@ describe("ensureDefault workspace", () => {
   });
 
   it("a teacher arriving first does not become owner; an admin who signs in later is still admin", async () => {
+    process.env.OMR_AUTO_JOIN = "teacher";
     process.env.DEFAULT_ADMIN_EMAILS = "dean@usa.edu.ph";
     const t = convexTest(schema, modules);
     const ana = as(t, "ana"), dean = as(t, "dean");
@@ -65,6 +68,6 @@ describe("ensureDefault workspace", () => {
   });
 
   it("parses the auto-join setting", () => {
-    expect([undefined, "", "teacher", "VIEWER", " off ", "admin"].map(parseAutoJoin)).toEqual(["teacher", "teacher", "teacher", "viewer", "off", "teacher"]);
+    expect([undefined, "", "teacher", "VIEWER", " off ", "admin", "garbage"].map(parseAutoJoin)).toEqual(["off", "off", "teacher", "viewer", "off", "off", "off"]);
   });
 });

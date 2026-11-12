@@ -1,5 +1,5 @@
 import { mutation, query } from "./_generated/server";
-import { accessDecision, allowedDomains, currentUser, defaultAdminEmails, ensureDefaultAdmin, requireAllowedIdentity } from "./lib/access";
+import { accessDecision, allowedDomains, bindPreAuthorizations, currentUser, defaultAdminEmails, ensureDefaultAdmin, requireAllowedIdentity } from "./lib/access";
 
 /** Upsert the signed-in user (call once after sign-in). Refuses accounts outside the allowlist. */
 export const store = mutation({
@@ -14,6 +14,8 @@ export const store = mutation({
     } else {
       id = await ctx.db.insert("users", { tokenIdentifier: identity.tokenIdentifier, ...patch });
     }
+    // pre-authorized faculty are bound to their role the moment they first sign in
+    await bindPreAuthorizations(ctx, (await ctx.db.get(id!))!);
     // DEFAULT_ADMIN_EMAILS: bootstrap admins join every existing school as admin on sign-in.
     if (defaultAdminEmails().includes(patch.email ?? "")) {
       const user = (await ctx.db.get(id!))!;

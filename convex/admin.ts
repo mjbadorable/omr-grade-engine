@@ -12,7 +12,9 @@ import { CLASE_FORMULA, normalizeDomains, validateFormula } from "../src/lib/adm
 import { checkRoleChange } from "../src/lib/roles/policy";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, type QueryCtx, query } from "./_generated/server";
-import { fail, logAudit, requireRole } from "./lib/access";
+import { emailAllowedByPolicy } from "../src/lib/admin/formula";
+import { parseEmailList } from "../src/lib/access-requests";
+import { allowedDomains, fail, logAudit, requireRole } from "./lib/access";
 import { gradingFormula, role } from "./validators";
 
 export const listFaculty = query({
@@ -123,5 +125,96 @@ export const auditTrail = query({
     const valid = (kinds ?? []).filter((k): k is (typeof AUDIT_KINDS)[number] => (AUDIT_KINDS as readonly string[]).includes(k));
     const rows = searchAudit(entries, { query: text, kinds: valid });
     return { total: rows.length, rows: rows.slice(0, Math.min(Math.max(limit ?? 100, 1), 500)).map((r) => ({ ...r, label: AUDIT_LABEL[r.kind] })) };
+  },
+});
+
+// ------------------------------------------------------------------ access: pre-authorization & requests
+const grantRole = v.union(v.literal("teacher"), v.literal("admin"));
+
+export const listAccess = query({
+  args: { orgId: v.id("orgs") },
+  handler: async (ctx, { orgId }) => {
+    await requireRole(ctx, orgId, "admin");
+    const pending = await ctx.db.query("accessRequests").withIndex("by_org_status", (q) => q.eq("orgId", orgId).eq("status", "pending")).collect();
+    const pre = await ctx.db.query("preAuthorizations").withIndex("by_org", (q) => q.eq("orgId", orgId)).collect();
+    return {
+      pending: pending.sort((a, b) => b.requestedAt - a.requestedAt).map((r) => ({ _id: r._id, email: r.email, name: r.name ?? "", requestedAt: r.requestedAt })),
+      preAuthorized: pre.sort((a, b) => a.email.localeCompare(b.email)).map((p) => ({ _id: p._id, email: p.email, role: p.role, createdAt: p.createdAt })),
+    };
+  },
+});
+
+/** Badge count for the header's Admin link. */
+export const pendingCount = query({
+  args: { orgId: v.id("orgs") },
+  handler: async (ctx, { orgId }) => {
+    await requireRole(ctx, orgId, "admin");
+    return (await ctx.db.query("accessRequests").withIndex("by_org_status", (q) => q.eq("orgId", orgId).eq("status", "pending")).collect()).length;
+  },
+});
+
+/**
+ * Pre-authorize faculty by email (any mix of commas / newlines). Already-registered users are bound
+ * immediately; everyone else is bound the moment they sign in. Only addresses in the allowed
+ * institutional domains are accepted.
+ */
+export const preAuthorize = mutation({
+  args: { orgId: v.id("orgs"), emails: v.string(), role: grantRole },
+  handler: async (ctx, { orgId, emails, role: grant }) => {
+    const { user: actor } = await requireRole(ctx, orgId, "admin");
+    const policy = await ctx.db.query("orgPolicies").withIndex("by_org", (q) => q.eq("orgId", orgId)).unique();
+    const parsed = parseEmailList(emails, allowedDomains());
+    const invalid = [...parsed.invalid, ...parsed.valid.filter((e) => policy && !emailAllowedByPolicy(e, policy.allowedDomains))];
+    const bound: string[] = [], queued: string[] = [], unchanged: string[] = [];
+    for (const email of parsed.valid.filter((e) => !invalid.includes(e))) {
+      const existing = await ctx.db.query("users").withIndex("by_email", (q) => q.eq("email", email)).first();
+      if (existing) {
+        const m = await ctx.db.query("memberships").withIndex("by_org_user", (q) => q.eq("orgId", orgId).eq("userId", existing._id)).unique();
+        if (m && (m.role === grant || m.role === "owner" || (m.role === "admin" && grant === "teacher"))) { unchanged.push(email); continue; }
+        if (m) await ctx.db.patch(m._id, { role: grant }); else await ctx.db.insert("memberships", { orgId, userId: existing._id, role: grant });
+        const req = await ctx.db.query("accessRequests").withIndex("by_org_user", (q) => q.eq("orgId", orgId).eq("userId", existing._id)).unique();
+        if (req?.status === "pending") await ctx.db.patch(req._id, { status: "approved", decidedBy: actor._id, decidedAt: Date.now() });
+        await logAudit(ctx, orgId, actor._id, "ROLE_CHANGE", `${email} pre-authorized as ${grant} (already signed in: bound now)`);
+        bound.push(email);
+        continue;
+      }
+      const pa = await ctx.db.query("preAuthorizations").withIndex("by_org_email", (q) => q.eq("orgId", orgId).eq("email", email)).unique();
+      if (pa) await ctx.db.patch(pa._id, { role: grant }); else await ctx.db.insert("preAuthorizations", { orgId, email, role: grant, createdBy: actor._id, createdAt: Date.now() });
+      await logAudit(ctx, orgId, actor._id, "ROLE_CHANGE", `${email} pre-authorized as ${grant} (binds at first sign-in)`);
+      queued.push(email);
+    }
+    return { bound, queued, unchanged, invalid };
+  },
+});
+
+export const revokePreAuthorization = mutation({
+  args: { orgId: v.id("orgs"), id: v.id("preAuthorizations") },
+  handler: async (ctx, { orgId, id }) => {
+    const { user } = await requireRole(ctx, orgId, "admin");
+    const pa = await ctx.db.get(id);
+    if (!pa || pa.orgId !== orgId) fail("NOT_FOUND", "Pre-authorization not found.");
+    await ctx.db.delete(id);
+    await logAudit(ctx, orgId, user._id, "ROLE_CHANGE", `Pre-authorization for ${pa.email} revoked`);
+  },
+});
+
+/** 1-click approval (as Teacher, or Admin) or rejection of a pending "Request Faculty Access". */
+export const decideRequest = mutation({
+  args: { orgId: v.id("orgs"), requestId: v.id("accessRequests"), decision: v.union(v.literal("approve"), v.literal("reject")), role: v.optional(grantRole) },
+  handler: async (ctx, { orgId, requestId, decision, role: grant }) => {
+    const { user: actor } = await requireRole(ctx, orgId, "admin");
+    const req = await ctx.db.get(requestId);
+    if (!req || req.orgId !== orgId) fail("NOT_FOUND", "Request not found.");
+    if (req.status !== "pending") fail("ALREADY_DECIDED", `This request was already ${req.status}.`);
+    if (decision === "reject") {
+      await ctx.db.patch(requestId, { status: "rejected", decidedBy: actor._id, decidedAt: Date.now() });
+      await logAudit(ctx, orgId, actor._id, "ROLE_CHANGE", `Faculty access request from ${req.email} rejected`);
+      return;
+    }
+    const role = grant ?? "teacher";
+    const m = await ctx.db.query("memberships").withIndex("by_org_user", (q) => q.eq("orgId", orgId).eq("userId", req.userId)).unique();
+    if (!m) await ctx.db.insert("memberships", { orgId, userId: req.userId, role });
+    await ctx.db.patch(requestId, { status: "approved", decidedBy: actor._id, decidedAt: Date.now() });
+    await logAudit(ctx, orgId, actor._id, "ROLE_CHANGE", `Faculty access request from ${req.email} approved as ${role}`);
   },
 });

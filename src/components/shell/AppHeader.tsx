@@ -6,6 +6,7 @@ import Brand from "@/components/brand/Brand";
 import ThemeToggle from "@/components/brand/ThemeToggle";
 import { openAbout } from "@/lib/acknowledgment";
 import { openGuide } from "@/lib/tutorial-state";
+import AccessBanner from "./AccessBanner";
 import AccountMenu from "./AccountMenu";
 import ActiveExamBar from "./ActiveExamBar";
 
@@ -41,6 +42,7 @@ export default function AppHeader() {
           <span className="ml-1 border-l border-zinc-200 pl-2 dark:border-zinc-800"><AccountMenu /></span>
         </div>
       </div>
+      <AccessBanner />
     </header>
   );
 }

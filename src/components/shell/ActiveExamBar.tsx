@@ -92,7 +92,7 @@ export default function ActiveExamBar() {
   }, [open]);
 
   const label = active.kind === "cloud" || active.kind === "match" ? active.exam.name : active.kind === "draft" ? active.title : "No exam yet";
-  const status = !s ? "Saved on this device" : !signedIn ? "Draft · sign in to sync" : active.kind === "draft" ? (err ? "Not saved" : "Saving on Scan / Grade") : active.kind === "none" ? "Design a sheet to begin" : "Synced workspace";
+  const status = !s ? "Saved on this device" : !signedIn ? "Draft · sign in to sync" : s.workspace.access !== "member" && s.workspace.access !== "loading" ? "Faculty access required" : active.kind === "draft" ? (err ? "Not saved" : "Saving on Scan / Grade") : active.kind === "none" ? "Design a sheet to begin" : "Synced workspace";
 
   return (
     <div className="flex min-w-0 items-center gap-2" data-testid="active-exam-bar">

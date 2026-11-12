@@ -60,6 +60,27 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_org", ["orgId"]),
 
+  /** Faculty emails approved in advance by an admin; consumed (bound to the role) when that person signs in. */
+  preAuthorizations: defineTable({
+    orgId: v.id("orgs"),
+    email: v.string(),
+    role: v.union(v.literal("teacher"), v.literal("admin")),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_org", ["orgId"]).index("by_org_email", ["orgId", "email"]).index("by_email", ["email"]),
+
+  /** "Request Faculty Access" queue: signed-in accounts that are not (yet) members. */
+  accessRequests: defineTable({
+    orgId: v.id("orgs"),
+    userId: v.id("users"),
+    email: v.string(),
+    name: v.optional(v.string()),
+    status: v.union(v.literal("pending"), v.literal("approved"), v.literal("rejected")),
+    requestedAt: v.number(),
+    decidedBy: v.optional(v.id("users")),
+    decidedAt: v.optional(v.number()),
+  }).index("by_org_status", ["orgId", "status"]).index("by_org_user", ["orgId", "userId"]),
+
   /** Admin-visible events that have no table of their own (roles, policy, syllabi). Append-only. */
   auditEvents: defineTable({
     orgId: v.id("orgs"),
