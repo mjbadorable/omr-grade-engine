@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyHero } from "@/components/brand/Brand";
+import PageActions from "@/components/shell/PageActions";
 import { useCloudSession } from "@/components/cloud/CloudSession";
 import { BRAND } from "@/lib/brand";
 import { answerKeyStatus } from "@/lib/grading/status";
@@ -372,13 +373,12 @@ export default function GradeApp() {
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <div role="toolbar" aria-label="Gradebook actions" data-testid="page-toolbar" className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-200 bg-zinc-50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900/40">
-        <span className="truncate text-sm text-zinc-500">{template.title}</span>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+      <PageActions>
+        <div className="flex flex-wrap items-center gap-2">
           <span data-testid="key-status" className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300" title="Changing the answer key rescores every paper instantly">
             {answerKeyStatus({ keyed, total: key.questions.size, papers: graded?.sheets.length ?? 0, saving: !!cloud && cloudSaving })}
           </span>
-          {!cloudSession && <SyncPanel pending={pending} teacherId={who.teacherId} endpoint={who.endpoint}
+          {!cloudSession && !!who.endpoint && <SyncPanel pending={pending} teacherId={who.teacherId} endpoint={who.endpoint}
             onTeacher={(v) => { setTeacherId(v); setWho((w) => ({ ...w, teacherId: identity().teacherId })); }}
             onEndpoint={(v) => { setSyncEndpoint(v); setWho((w) => ({ ...w, endpoint: v.trim() })); }}
             onSync={async () => { const e = makeEngine(); if (!e) return null; const r = await e.syncOnce(); refreshPending(); if (r.pulled) load(template); return r; }} />}
@@ -388,7 +388,7 @@ export default function GradeApp() {
             onClick={() => graded && download(`${key.examId}-v${key.version}-results.csv`, "﻿" + toCsv(gradebookRows(graded.sheets, key)), "text/csv;charset=utf-8")}>CSV</button>
           <button type="button" className={`${btn} bg-indigo-600 text-white hover:bg-indigo-700`} disabled={!graded?.sheets.length} onClick={exportXlsx}>Excel</button>
         </div>
-      </div>
+      </PageActions>
 
       <div className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-2 text-sm dark:border-zinc-800">
         <div className="flex flex-wrap gap-1" role="tablist">

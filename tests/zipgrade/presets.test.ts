@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeLayout } from "@/lib/omr/layout-engine";
+import { sheetSummary } from "@/lib/omr/summary";
 import { activeQuickPreset, applyQuickPreset, DEFAULT_SETTINGS, PRESETS, QUICK_PRESETS } from "@/lib/omr/presets";
 
 describe("ZipGrade quick presets", () => {
@@ -28,5 +29,28 @@ describe("ZipGrade quick presets", () => {
     expect(activeQuickPreset(applyQuickPreset(DEFAULT_SETTINGS, QUICK_PRESETS[2]))).toBe("zg-100");
     expect(activeQuickPreset(applyQuickPreset(DEFAULT_SETTINGS, QUICK_PRESETS[0]))).toBe("zg-20");
     expect(activeQuickPreset({ ...applyQuickPreset(DEFAULT_SETTINGS, QUICK_PRESETS[0]), rollDigits: 8 })).toBeNull();
+  });
+});
+
+describe("quick presets replace every existing section", () => {
+  const starts = PRESETS.map((p) => ({ name: p.name, settings: { ...p.settings, templateId: "tpl-x" } }));
+  it.each(starts)("from “$name”: exactly one MCQ section, N questions, one page, no errors", ({ settings }) => {
+    for (const q of QUICK_PRESETS) {
+      const s = applyQuickPreset(settings, q);
+      expect(s.sections).toHaveLength(1);
+      expect(s.sections[0]).toMatchObject({ type: "mcq", questionCount: q.questions, optionCount: 4 });
+      const r = computeLayout(s);
+      expect(r.stats.questions).toBe(q.questions);                              // never 102 from leftover numeric Q101–102
+      expect(r.template.pages).toHaveLength(1);
+      expect(r.issues.filter((i) => i.severity === "error")).toEqual([]);
+      expect(sheetSummary({ questions: r.stats.questions, pages: r.template.pages.length, paper: s.paper, layoutErrors: 0 }).text).toBe(`✓ ${q.questions} Questions · 1 Page (A4) · Ready to Print`);
+    }
+  });
+  it("does not share section objects with the preset (editing one sheet cannot change the preset)", () => {
+    const a = applyQuickPreset(DEFAULT_SETTINGS, QUICK_PRESETS[0]);
+    expect(a.sections[0]).not.toBe(QUICK_PRESETS[0].settings.sections[0]);
+  });
+  it("cards carry plain-language names", () => {
+    expect(QUICK_PRESETS.map((q) => `${q.questions} ${q.tagline}`)).toEqual(["20 Short Quiz", "50 Standard Exam", "100 Full Exam"]);
   });
 });

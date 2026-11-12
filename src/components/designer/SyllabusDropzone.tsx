@@ -33,6 +33,9 @@ export default function SyllabusDropzone({ settings, onConfigure }: Props) {
     setApplied(p && p.templateId === settings.templateId ? `${p.syllabus.courseCode} · ${PERIOD_LABEL[p.period]}` : null);
   }, [settings.templateId]);
   const input = useRef<HTMLInputElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const closeReview = () => { setParsed(null); setTos(null); setError(null); };
+  useEffect(() => { const d = dialog.current; if (!d) return; if (parsed && !d.open) d.showModal(); if (!parsed && d.open) d.close(); }, [parsed]);
   const total = totalQuestions(settings);
 
   const ingest = useCallback(async (file: File | undefined) => {
@@ -71,29 +74,35 @@ export default function SyllabusDropzone({ settings, onConfigure }: Props) {
   }
 
   return (
-    <section aria-label="Course syllabus" className="border-b border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/40">
+    <section aria-label="Course syllabus" data-testid="syllabus-card" className="space-y-2">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Auto-fill</h2>
       <div
         onDragOver={(e) => { e.preventDefault(); setOver(true); }}
         onDragLeave={() => setOver(false)}
         onDrop={(e) => { e.preventDefault(); setOver(false); void ingest(e.dataTransfer.files[0]); }}
-        className={`flex flex-wrap items-center gap-3 rounded-lg border-2 border-dashed px-4 py-2.5 text-sm transition ${over ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10" : "border-zinc-300 dark:border-zinc-700"}`}
+        className={`rounded-xl border-2 border-dashed p-3 text-sm transition ${over ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10" : "border-zinc-300 dark:border-zinc-700"}`}
       >
-        <svg viewBox="0 0 24 24" className="size-5 shrink-0 text-indigo-600" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M12 16V4m0 0L7 9m5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></svg>
-        <div className="min-w-0 flex-1">
-          <div className="font-medium">{busy ? "Reading syllabus…" : "Drop Course Syllabus PDF to Auto-Configure Exam"}</div>
-          <div className="text-xs text-zinc-500">
-            {applied ? <>Sheet configured from <b>{applied}</b>. Outcomes will be bound automatically when you grade.</> : "Course outcomes, program outcomes and modules are extracted for you. No typing."}
+        <div className="flex items-center gap-2.5">
+          <svg viewBox="0 0 24 24" className="size-5 shrink-0 text-indigo-600" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M12 16V4m0 0L7 9m5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></svg>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium leading-tight">{busy ? "Reading syllabus…" : "Auto-Fill from Syllabus (PDF)"}</p>
+            <p className="text-[11px] leading-snug text-zinc-500">{applied ? <>Using <b>{applied}</b></> : "Drop your course syllabus: outcomes and exam details fill in for you."}</p>
           </div>
         </div>
         <input ref={input} type="file" accept="application/pdf,.pdf" className="sr-only" aria-label="Course syllabus PDF" onChange={(e) => { void ingest(e.target.files?.[0]); e.target.value = ""; }} />
-        <button type="button" disabled={busy} onClick={() => input.current?.click()} className="rounded-md border border-zinc-300 bg-white px-3 py-1.5 font-medium hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900">Browse PDF…</button>
-        {applied && <button type="button" className="text-xs text-zinc-500 underline" onClick={() => { writeStoredPlan(null); setApplied(null); }}>unlink</button>}
+        <div className="mt-2 flex items-center gap-2">
+          <button type="button" disabled={busy} onClick={() => input.current?.click()} className="rounded-md border border-zinc-300 bg-white px-3 py-1 text-xs font-medium hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-900">Choose PDF…</button>
+          {applied && <button type="button" className="text-[11px] text-zinc-500 underline" onClick={() => { writeStoredPlan(null); setApplied(null); }}>unlink</button>}
+        </div>
       </div>
+      {error && <p role="alert" className="text-xs text-red-600 dark:text-red-400">{error}</p>}
 
-      {error && <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
-
-      {parsed && syllabus && tos && (
-        <div className="mt-3 grid gap-4 rounded-lg border border-zinc-200 bg-white p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] dark:border-zinc-800 dark:bg-zinc-950" data-testid="syllabus-review">
+      <dialog ref={dialog} aria-label="Review syllabus" data-testid="syllabus-dialog"
+        onCancel={(e) => { e.preventDefault(); closeReview(); }} onClick={(e) => { if (e.target === dialog.current) closeReview(); }}
+        className="m-auto max-h-[calc(100dvh-1rem)] w-[min(60rem,calc(100vw-1rem))] overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
+        <div className="h-1.5 bg-gradient-to-r from-indigo-600 via-gold to-indigo-600" />
+        {parsed && syllabus && tos && (
+        <div className="grid gap-4 p-4 sm:p-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]" data-testid="syllabus-review">
           <div className="space-y-3 text-sm">
             <div>
               <div className="text-xs text-zinc-500">{parsed.fileName}</div>
@@ -153,7 +162,8 @@ export default function SyllabusDropzone({ settings, onConfigure }: Props) {
             </div>
           </div>
         </div>
-      )}
+        )}
+      </dialog>
     </section>
   );
 }

@@ -12,7 +12,7 @@ const TONE: Record<SyncTone, string> = {
 };
 const DOT: Record<SyncTone, string> = { synced: "bg-emerald-500", syncing: "animate-pulse bg-indigo-500", offline: "bg-amber-500", attention: "bg-red-500" };
 
-export default function SyncBadge() {
+export default function SyncBadge({ compact = false }: { compact?: boolean }) {
   const s = useCloudSession();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -29,9 +29,9 @@ export default function SyncBadge() {
   return (
     <div className="relative" ref={ref}>
       <button type="button" data-testid="sync-badge" data-tone={view.tone} aria-live="polite" aria-expanded={open} onClick={() => setOpen((o) => !o)}
-        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${TONE[view.tone]}`}>
+        className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium ${TONE[view.tone]}`}>
         <span className={`size-2 rounded-full ${DOT[view.tone]}`} />
-        {view.label}
+        {compact && view.tone === "synced" ? "Synced" : view.label}
       </button>
       {open && (
         <div className="absolute right-0 z-30 mt-2 w-80 space-y-2 rounded-lg border border-zinc-200 bg-white p-3 text-xs shadow-lg dark:border-zinc-700 dark:bg-zinc-950">

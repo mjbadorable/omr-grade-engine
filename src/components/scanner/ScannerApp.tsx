@@ -1,6 +1,7 @@
 "use client";
 
 import { EmptyHero } from "@/components/brand/Brand";
+import PageActions from "@/components/shell/PageActions";
 import { useCloudSession } from "@/components/cloud/CloudSession";
 import { useQuery } from "convex/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -150,18 +151,18 @@ export default function ScannerApp() {
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <div role="toolbar" aria-label="Scanner actions" data-testid="page-toolbar" className="flex flex-wrap items-center gap-3 border-b border-zinc-200 bg-zinc-50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900/40">
-        <div className="ml-auto flex items-center gap-2 order-last">
+      <PageActions>
+        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${engine.state === "ready" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : engine.state === "error" ? "bg-red-100 text-red-700" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`}>
+          {engine.state === "ready" ? "Scanner Ready" : engine.state === "error" ? `Scanner unavailable: ${engine.message}` : "Starting scanner…"}
+        </span>
+        <div className="flex items-center gap-2">
           <button type="button" onClick={toggleMute} aria-pressed={muted} data-testid="mute-toggle" title={muted ? "Sounds off: click to unmute" : "Success chime on: click to mute"}
             className="inline-flex h-8 items-center gap-1 rounded-md border border-zinc-200 px-2 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800">
             <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M11 5 6 9H3v6h3l5 4z" />{muted ? <path d="m16 9 5 6m0-6-5 6" /> : <path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" />}</svg>
             {muted ? "Muted" : "Sound"}
           </button>
         </div>
-        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${engine.state === "ready" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : engine.state === "error" ? "bg-red-100 text-red-700" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`}>
-          {engine.state === "ready" ? "Scanner Ready" : engine.state === "error" ? `Scanner unavailable: ${engine.message}` : "Starting scanner…"}
-        </span>
-      </div>
+      </PageActions>
 
       <div className="grid flex-1 gap-4 p-4 lg:grid-cols-[380px_1fr]">
         <section className="space-y-4">

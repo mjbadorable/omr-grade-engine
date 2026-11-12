@@ -17,12 +17,11 @@ export function BrandLockup({ className = "h-8" }: { className?: string }) {
   );
 }
 
-/** Header lockup: logo + institution badge, with the acronym expansion as tooltip. */
+/** Header lockup: the VERITAS logo only (acronym expansion as tooltip). */
 export default function Brand() {
   return (
     <div className="flex items-center gap-2.5" title={`${BRAND.name}: ${BRAND.expansion}`}>
       <Link href="/designer" className="flex items-center" aria-label={`${BRAND.name}, ${BRAND.institution}`}><BrandLockup className="h-8" /></Link>
-      <span className="hidden rounded-full border border-gold/40 bg-gold-tint px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gold-hover lg:inline dark:text-gold" data-testid="brand-badge">{BRAND.badge}</span>
     </div>
   );
 }

@@ -11,7 +11,7 @@ import type { LayoutSettings } from "@/lib/omr/schema";
 import DebugDrawer, { IssueList } from "./DebugDrawer";
 import QuickPresets from "./QuickPresets";
 import SettingsPanel from "./SettingsPanel";
-import HeroStrip from "./HeroStrip";
+import PageActions from "@/components/shell/PageActions";
 import SyllabusDropzone from "./SyllabusDropzone";
 import SheetPreview, { type PreviewOverlays } from "./SheetPreview";
 
@@ -95,7 +95,7 @@ export default function SheetDesigner() {
 
   return (
     <div className="flex flex-col" style={{ height: "calc(100dvh - var(--app-header-h, 56px))" }}>
-      <div role="toolbar" aria-label="Sheet actions" data-testid="page-toolbar" className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-zinc-200 bg-zinc-50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900/40">
+      <PageActions>
         {result && summary && (
           <span data-testid="sheet-summary" data-tone={summary.tone} role="status"
             className={`rounded-full px-3 py-1 text-sm font-medium ${summary.tone === "ok" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" : summary.tone === "warn" ? "bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200" : "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300"}`}>
@@ -103,7 +103,7 @@ export default function SheetDesigner() {
             {summary.tone === "error" && <button type="button" className="ml-2 underline" onClick={() => setDrawer("issues")}>Details</button>}
           </span>
         )}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <button type="button" disabled={kitBusy} className={`${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}
             title="A ready-made 20-question exam with answer key, class list and practice scans" onClick={downloadKit}>
             {kitBusy ? "Preparing…" : "Load Sample Exam"}
@@ -112,15 +112,13 @@ export default function SheetDesigner() {
             {busy ? "Preparing PDF…" : "Download Answer Sheet (PDF)"}
           </button>
         </div>
-      </div>
-
-      <HeroStrip />
-      <SyllabusDropzone settings={settings} onConfigure={(next) => { setSettings(next); setPageIndex(0); }} />
+      </PageActions>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <aside className="shrink-0 overflow-y-auto border-b border-zinc-200 bg-white p-4 lg:w-[360px] lg:border-r lg:border-b-0 dark:border-zinc-800 dark:bg-zinc-950">
           <div className="space-y-6">
             <QuickPresets settings={settings} onApply={(s) => { setSettings(s); setPageIndex(0); }} />
+            <SyllabusDropzone settings={settings} onConfigure={(next) => { setSettings(next); setPageIndex(0); }} />
             <SettingsPanel settings={settings} onChange={setSettings} />
             <details className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800" data-testid="developer-tools">
               <summary className="cursor-pointer text-sm font-medium">Advanced / Developer Tools</summary>

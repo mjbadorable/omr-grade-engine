@@ -24,13 +24,10 @@ export default function AppHeader() {
   }, []);
   return (
     <header ref={ref} data-testid="app-header" className="sticky top-0 z-30 border-b border-zinc-200 bg-white/95 backdrop-blur dark:border-zinc-800 dark:bg-zinc-950/95">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-3 py-2 sm:px-4">
+      {/* Tier 1: brand + global utilities + account */}
+      <div className="flex items-center gap-x-4 px-3 py-2 sm:px-4" data-testid="header-tier-1">
         <Brand />
-        <div className="order-3 flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-2 lg:order-none lg:w-auto lg:flex-1">
-          <AppNav />
-          <ActiveExamBar />
-        </div>
-        <div className="ml-auto flex items-center gap-1.5 lg:ml-0">
+        <div className="ml-auto flex items-center gap-1.5">
           <button type="button" onClick={() => openGuide()} data-testid="guide-trigger" title="Tutorial & Guidelines for this page" className="inline-flex h-8 items-center gap-1 rounded-md border border-gold/50 bg-gold-tint px-2 text-xs font-semibold text-gold-hover hover:brightness-95 dark:text-gold">
             <span aria-hidden className="grid size-4 place-items-center rounded-full bg-gold text-[10px] font-bold text-white">?</span><span>Guide</span>
           </button>
@@ -41,6 +38,12 @@ export default function AppHeader() {
           <ThemeToggle />
           <span className="ml-1 border-l border-zinc-200 pl-2 dark:border-zinc-800"><AccountMenu /></span>
         </div>
+      </div>
+      {/* Tier 2: workflow tabs + active exam on the left, the page's status and actions on the right */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-zinc-100 bg-zinc-50/70 px-3 py-1.5 sm:px-4 dark:border-zinc-900 dark:bg-zinc-900/40" data-testid="header-tier-2">
+        <AppNav />
+        <ActiveExamBar />
+        <div id="page-actions" data-testid="page-toolbar" role="toolbar" aria-label="Page actions" className="ml-auto flex flex-wrap items-center gap-2" />
       </div>
       <AccessBanner />
     </header>
