@@ -18,6 +18,7 @@ export const LIMITS = {
   "orgs.ensureDefault": { max: 20, windowMs: 5 * MIN },
   "orgs.requestAccess": { max: 10, windowMs: 60 * MIN },
   "exams.create": { max: 30, windowMs: 60 * MIN },
+  "examFolders.create": { max: 30, windowMs: 60 * MIN },
   "syllabi.upsert": { max: 30, windowMs: 60 * MIN },
   "grading.submitScanBatch": { max: 600, windowMs: 10 * MIN },
   "grading.generateUploadUrl": { max: 600, windowMs: 10 * MIN },

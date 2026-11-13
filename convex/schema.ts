@@ -106,6 +106,15 @@ export default defineSchema({
     createdBy: v.id("users"),
   }).index("by_org", ["orgId"]),
 
+  examFolders: defineTable({
+    orgId: v.id("orgs"),
+    name: v.string(),
+    semester: v.string(),
+    schoolYear: v.optional(v.string()),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  }).index("by_org", ["orgId"]),
+
   exams: defineTable({
     orgId: v.id("orgs"),
     name: v.string(),
@@ -119,8 +128,11 @@ export default defineSchema({
     /** course syllabus this exam assesses (outcome attainment is measured against it) */
     syllabusId: v.optional(v.id("syllabi")),
     examPeriod: v.optional(examPeriod),
+    folderId: v.optional(v.id("examFolders")),
+    archivedAt: v.optional(v.number()),
+    archivedBy: v.optional(v.id("users")),
     createdBy: v.id("users"),
-  }).index("by_org", ["orgId"]).index("by_org_hash", ["orgId", "layoutHash"]),
+  }).index("by_org", ["orgId"]).index("by_org_hash", ["orgId", "layoutHash"]).index("by_folder", ["orgId", "folderId"]),
 
   answerKeys: defineTable({
     examId: v.id("exams"),

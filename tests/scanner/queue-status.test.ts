@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { queueState, queueSummary, type QueueJob } from "@/lib/scan-queue";
+import { DEFAULT_SCAN_MODE, queueState, queueSummary, SCAN_MODES, type QueueJob } from "@/lib/scan-queue";
 
 const job = (over: Partial<QueueJob> = {}): QueueJob => ({ status: "done", result: { fields: { conflicts: [] } }, ...over });
 const review = () => job({ result: { fields: { conflicts: [{}, {}] } } });
@@ -48,5 +48,14 @@ describe("queueSummary", () => {
   it("ignores calibration runs: they are never saved to the gradebook", () => {
     const s = queueSummary([job({ calibration: true }), { status: "scanning", calibration: true }]);
     expect(s).toMatchObject({ done: 0, scanning: 0, scanned: 0, canProceed: false });
+  });
+});
+
+describe("scan mode priority", () => {
+  it("defaults to camera and places Use Camera first ahead of Upload Files", () => {
+    expect(DEFAULT_SCAN_MODE).toBe("camera");
+    expect(SCAN_MODES.map((m) => m.id)).toEqual(["camera", "upload"]);
+    expect(SCAN_MODES[0]).toMatchObject({ id: "camera", label: "Use Camera" });
+    expect(SCAN_MODES[1]).toMatchObject({ id: "upload", label: "Upload Files" });
   });
 });

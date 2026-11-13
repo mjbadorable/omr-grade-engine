@@ -1,4 +1,11 @@
 /** Teacher-facing view of the scan queue: plain states and counts (no engine telemetry). */
+export type ScanMode = "camera" | "upload";
+export const DEFAULT_SCAN_MODE: ScanMode = "camera";
+export const SCAN_MODES: readonly { id: ScanMode; label: string; hint: string }[] = [
+  { id: "camera", label: "Use Camera", hint: "Scan test paper" },
+  { id: "upload", label: "Upload Files", hint: "JPG or PNG" },
+];
+
 export interface QueueJob {
   status: "queued" | "scanning" | "done" | "error";
   /** only the flagged-answer count matters here */

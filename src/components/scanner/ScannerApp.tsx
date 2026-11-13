@@ -12,7 +12,7 @@ import { bodyToAnswerKey } from "@/lib/cloud/convert";
 import type { AnswerKey } from "@/lib/grading/types";
 import { playChime, readAutoSnap, readMuted, unlockAudio, writeAutoSnap, writeMuted } from "@/lib/audio/chime";
 import { type InstantResult, instantResult } from "@/lib/scan-result";
-import { queueState, queueSummary, type QueueStateId } from "@/lib/scan-queue";
+import { DEFAULT_SCAN_MODE, queueState, queueSummary, SCAN_MODES, type QueueStateId, type ScanMode } from "@/lib/scan-queue";
 import { AutoSnapGate } from "@/lib/vision/auto-snap";
 import { OMRTemplateSchema, type OMRTemplate } from "@/lib/omr/schema";
 import { readStoredKey, readStoredTemplate, writeStoredTemplate } from "@/lib/storage/template-store";
@@ -62,7 +62,7 @@ export default function ScannerApp() {
   const cloudKey = useRef<AnswerKey | null>(null);
   const rearm = useRef<() => void>(() => {});
   const fileInput = useRef<HTMLInputElement>(null);
-  const [mode, setModeState] = useState<"upload" | "camera">("upload");
+  const [mode, setModeState] = useState<ScanMode>(DEFAULT_SCAN_MODE);
   const [autoSnap, setAutoSnap] = useState(true);
   const [canCapture, setCanCapture] = useState(false);
   const cameraApi = useRef<{ capture: () => void } | null>(null);
@@ -177,7 +177,7 @@ export default function ScannerApp() {
         <header className="flex flex-wrap items-start gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-bold">Scan &amp; Upload</h1>
-            <p className="mt-2 text-sm text-zinc-500">Upload photos of completed answer sheets or scan them with the camera.</p>
+            <p className="mt-2 text-sm text-zinc-500">Scan completed answer sheets with your camera, or upload photos.</p>
           </div>
           <ActiveExamBar />
         </header>
@@ -185,10 +185,31 @@ export default function ScannerApp() {
         <div className="grid items-start gap-6 lg:grid-cols-2">
           <section aria-label="Capture" className="v-panel min-w-0 space-y-6 p-6" data-testid="scan-capture">
             <div className="space-y-2">
-              <div className="v-tabs grid grid-cols-2" role="tablist" aria-label="How to scan">
-                {(["upload", "camera"] as const).map((m) => (
-                  <button key={m} role="tab" aria-selected={mode === m} type="button" className="v-tab py-2 text-center text-sm" onClick={() => { setModeState(m); if (m === "camera") unlockAudio(); }}>{m === "upload" ? "Upload Files" : "Use Camera"}</button>
-                ))}
+              <div className="v-tabs grid grid-cols-2 gap-2 p-1.5" role="tablist" aria-label="How to scan">
+                {SCAN_MODES.map((m) => {
+                  const active = mode === m.id;
+                  return (
+                    <button key={m.id} role="tab" aria-selected={active} type="button"
+                      className="v-tab flex flex-col items-center gap-1.5 px-2.5 py-2.5 text-center sm:flex-row sm:gap-3 sm:px-3 sm:py-2 sm:text-left"
+                      onClick={() => { setModeState(m.id); if (m.id === "camera") unlockAudio(); }}>
+                      <span className={`grid size-9 shrink-0 place-items-center rounded-full transition-colors ${active ? "bg-[var(--brand)] text-white shadow-sm" : "bg-zinc-200/80 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`} aria-hidden>
+                        {m.id === "camera" ? (
+                          <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" />
+                          </svg>
+                        ) : (
+                          <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M12 18v-6m0 0-2.5 2.5M12 12l2.5 2.5" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="w-full min-w-0 sm:w-auto">
+                        <span className="block truncate text-sm font-semibold leading-tight">{m.label}</span>
+                        <span className="block truncate text-[11px] font-normal text-zinc-500 dark:text-zinc-400">{m.hint}</span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
               {!template && <p className="text-xs text-zinc-500">No exam yet. Design one in <b>Design Exam</b> and it appears here.</p>}
               {template && <p className="text-xs text-zinc-500">{template.questionCount} questions · {template.pages.length} page{template.pages.length === 1 ? "" : "s"}</p>}

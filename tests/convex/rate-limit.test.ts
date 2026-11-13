@@ -62,8 +62,8 @@ describe("rateLimit (unit)", () => {
 });
 
 describe("limits are generous enough for real classroom use", () => {
-  it("covers all eight protected actions", () => {
-    expect(Object.keys(LIMITS).sort()).toEqual(["exams.create", "grading.addOverrides", "grading.generateUploadUrl", "grading.submitScanBatch", "orgs.ensureDefault", "orgs.requestAccess", "syllabi.upsert", "users.store"]);
+  it("covers all nine protected actions", () => {
+    expect(Object.keys(LIMITS).sort()).toEqual(["examFolders.create", "exams.create", "grading.addOverrides", "grading.generateUploadUrl", "grading.submitScanBatch", "orgs.ensureDefault", "orgs.requestAccess", "syllabi.upsert", "users.store"]);
   });
   it("lets a teacher scan and upload a few hundred sheets (even a whole offline queue replaying) in ten minutes", () => {
     for (const b of ["grading.submitScanBatch", "grading.generateUploadUrl"] as const) {

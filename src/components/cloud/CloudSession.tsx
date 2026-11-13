@@ -39,7 +39,7 @@ export interface CloudSessionValue {
     access: "loading" | "member" | "none" | "pending" | "rejected";
     requestAccess: () => Promise<void>;
   };
-  exams: { _id: Id<"exams">; name: string; layoutHash: string; status: string; currentKeyVersion: number; examPeriod?: string | null; syllabusId?: Id<"syllabi"> | null }[] | undefined;
+  exams: { _id: Id<"exams">; name: string; layoutHash: string; status: string; currentKeyVersion: number; examPeriod?: string | null; syllabusId?: Id<"syllabi"> | null; folderId?: Id<"examFolders"> | null; archivedAt?: number | null }[] | undefined;
   selection: Selection;
   selectExam: (examId: Id<"exams"> | null) => void;
   /** template of the selected exam (validated), undefined while loading */

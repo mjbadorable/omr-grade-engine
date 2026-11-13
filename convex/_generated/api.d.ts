@@ -10,6 +10,7 @@
 
 import type * as admin from "../admin.js";
 import type * as analytics from "../analytics.js";
+import type * as examFolders from "../examFolders.js";
 import type * as exams from "../exams.js";
 import type * as grading from "../grading.js";
 import type * as lib_access from "../lib/access.js";
@@ -27,6 +28,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   analytics: typeof analytics;
+  examFolders: typeof examFolders;
   exams: typeof exams;
   grading: typeof grading;
   "lib/access": typeof lib_access;
