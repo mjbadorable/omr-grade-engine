@@ -30,16 +30,16 @@ const RuleRow = memo(function RuleRow({ rule, stat, onChange }: { rule: Question
           </div>
         ) : rule.type === "numeric" ? (
           <div className="flex items-center gap-1 text-xs">
-            <input key={`v${rule.value}`} aria-label="Correct value" className={`${input} w-20`} defaultValue={rule.value ?? ""} placeholder="value"
+            <input key={`v${rule.value}`} name="correct-value" aria-label="Correct value" className={`${input} w-20`} defaultValue={rule.value ?? ""} placeholder="value"
               onBlur={(e) => onChange({ value: e.target.value.trim() === "" ? null : num(e.target.value, rule.value ?? 0) } as Partial<QuestionRule>)} />
-            ±<input key={`t${rule.tolerance}`} aria-label="Tolerance" className={`${input} w-14`} defaultValue={rule.tolerance} onBlur={(e) => onChange({ tolerance: Math.max(0, num(e.target.value, 0)) } as Partial<QuestionRule>)} />
+            ±<input key={`t${rule.tolerance}`} name="tolerance" aria-label="Tolerance" className={`${input} w-14`} defaultValue={rule.tolerance} onBlur={(e) => onChange({ tolerance: Math.max(0, num(e.target.value, 0)) } as Partial<QuestionRule>)} />
           </div>
         ) : (
           <div className="flex flex-wrap gap-1 text-xs">
             {Object.entries(rule.rows).map(([row, cols]) => (
               <label key={row} className="flex items-center gap-0.5">
                 <span className="font-semibold">{row}→</span>
-                <input key={cols.join("")} className={`${input} w-12 uppercase`} defaultValue={cols.join("")}
+                <input key={cols.join("")} name={`matrix-row-${row}`} aria-label={`Correct columns for row ${row}`} className={`${input} w-12 uppercase`} defaultValue={cols.join("")}
                   onBlur={(e) => onChange({ rows: { ...rule.rows, [row]: [...new Set(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))] } } as Partial<QuestionRule>)} />
               </label>
             ))}
@@ -48,18 +48,18 @@ const RuleRow = memo(function RuleRow({ rule, stat, onChange }: { rule: Question
       </td>
       <td className={`py-1 pr-2 ${dim}`}>
         {rule.type !== "numeric" && (
-          <select aria-label="Match mode" className={`${input} text-xs`} value={rule.mode} onChange={(e) => onChange({ mode: e.target.value as MatchMode } as Partial<QuestionRule>)}>
+          <select name="match-mode" aria-label="Match mode" className={`${input} text-xs`} value={rule.mode} onChange={(e) => onChange({ mode: e.target.value as MatchMode } as Partial<QuestionRule>)}>
             <option value="ALL_MATCH">All match</option>
             {rule.type === "choice" && <option value="ANY_MATCH">Any match</option>}
             <option value="PARTIAL_CREDIT">Partial credit</option>
           </select>
         )}
       </td>
-      <td className="py-1 pr-1"><input aria-label="Points" className={`${input} w-12`} type="number" min={0} step={0.25} value={rule.points} onChange={(e) => onChange({ points: Math.max(0, num(e.target.value, rule.points)) })} /></td>
-      <td className="py-1 pr-2"><input aria-label="Negative marks" className={`${input} w-12`} type="number" min={0} step={0.25} value={rule.negative} onChange={(e) => onChange({ negative: Math.max(0, num(e.target.value, rule.negative)) })} /></td>
-      <td className="py-1 pr-2 text-center"><input aria-label="Bonus" type="checkbox" className="accent-emerald-600" checked={rule.bonus} onChange={(e) => onChange({ bonus: e.target.checked })} /></td>
-      <td className="py-1 pr-2 text-center"><input aria-label="Drop question" type="checkbox" className="accent-red-600" checked={rule.dropped} onChange={(e) => onChange({ dropped: e.target.checked })} /></td>
-      <td className="py-1 pr-2"><input key={rule.tags.subject ?? ""} aria-label="Subject" className={`${input} w-24 text-xs`} defaultValue={rule.tags.subject ?? ""} placeholder="subject" onBlur={(e) => onChange({ tags: { ...rule.tags, subject: e.target.value.trim() || undefined } })} /></td>
+      <td className="py-1 pr-1"><input name="points" aria-label="Points" className={`${input} w-12`} type="number" min={0} step={0.25} value={rule.points} onChange={(e) => onChange({ points: Math.max(0, num(e.target.value, rule.points)) })} /></td>
+      <td className="py-1 pr-2"><input name="negative-marks" aria-label="Negative marks" className={`${input} w-12`} type="number" min={0} step={0.25} value={rule.negative} onChange={(e) => onChange({ negative: Math.max(0, num(e.target.value, rule.negative)) })} /></td>
+      <td className="py-1 pr-2 text-center"><input name="bonus" aria-label="Bonus" type="checkbox" className="accent-emerald-600" checked={rule.bonus} onChange={(e) => onChange({ bonus: e.target.checked })} /></td>
+      <td className="py-1 pr-2 text-center"><input name="drop-question" aria-label="Drop question" type="checkbox" className="accent-red-600" checked={rule.dropped} onChange={(e) => onChange({ dropped: e.target.checked })} /></td>
+      <td className="py-1 pr-2"><input key={rule.tags.subject ?? ""} name="subject" aria-label="Subject" className={`${input} w-24 text-xs`} defaultValue={rule.tags.subject ?? ""} placeholder="subject" onBlur={(e) => onChange({ tags: { ...rule.tags, subject: e.target.value.trim() || undefined } })} /></td>
       <td className="py-1 text-xs tabular-nums text-zinc-500">{stat ? <span className="inline-flex items-center gap-1.5"><QualityDot quality={stat.quality} />p {stat.p.toFixed(2)} · D {stat.d.toFixed(2)}</span> : "—"}</td>
     </tr>
   );
@@ -96,21 +96,21 @@ export function ScoringRules({ answerKey, onChange, keySources, onExport, onImpo
       <section className="space-y-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Scoring rules</h2>
         <label className="block"><span className={label}>Points per correct item</span>
-          <input aria-label="Points per correct item" className={`${input} w-full`} inputMode="decimal" placeholder="mixed" value={points} onChange={(e) => setPoints(e.target.value)} onBlur={applyPoints} onKeyDown={(e) => { if (e.key === "Enter") { applyPoints(); e.currentTarget.blur(); } }} />
+          <input name="points-per-correct-item" aria-label="Points per correct item" className={`${input} w-full`} inputMode="decimal" placeholder="mixed" value={points} onChange={(e) => setPoints(e.target.value)} onBlur={applyPoints} onKeyDown={(e) => { if (e.key === "Enter") { applyPoints(); e.currentTarget.blur(); } }} />
         </label>
         <div>
           <label className="flex cursor-pointer items-center gap-2 text-sm">
-            <input type="checkbox" className="accent-indigo-600" checked={deduct} onChange={(e) => { setDeduct(e.target.checked); onChange(updateAllRules(answerKey, { negative: e.target.checked ? Math.max(0, num(positive(penalty), 1)) : 0 })); }} />
+            <input type="checkbox" name="deduct-wrong" className="accent-indigo-600" checked={deduct} onChange={(e) => { setDeduct(e.target.checked); onChange(updateAllRules(answerKey, { negative: e.target.checked ? Math.max(0, num(positive(penalty), 1)) : 0 })); }} />
             Deduct points for wrong answers
           </label>
           {deduct && (
             <label className="mt-2 block"><span className={label}>Points deducted per wrong answer</span>
-              <input aria-label="Points deducted per wrong answer" className={`${input} w-full`} inputMode="decimal" value={penalty} onChange={(e) => setPenalty(e.target.value)} onBlur={applyPenalty} onKeyDown={(e) => { if (e.key === "Enter") { applyPenalty(); e.currentTarget.blur(); } }} />
+              <input name="points-deducted-per-wrong" aria-label="Points deducted per wrong answer" className={`${input} w-full`} inputMode="decimal" value={penalty} onChange={(e) => setPenalty(e.target.value)} onBlur={applyPenalty} onKeyDown={(e) => { if (e.key === "Enter") { applyPenalty(); e.currentTarget.blur(); } }} />
             </label>
           )}
         </div>
         <label className="block"><span className={label}>Uncertain / double marks</span>
-          <select aria-label="Uncertain or double marks" className={`${input} w-full`} value={answerKey.conflictPolicy} onChange={(e) => onChange(updateKey(answerKey, { conflictPolicy: e.target.value as AnswerKey["conflictPolicy"] }))}>
+          <select name="conflict-policy" aria-label="Uncertain or double marks" className={`${input} w-full`} value={answerKey.conflictPolicy} onChange={(e) => onChange(updateKey(answerKey, { conflictPolicy: e.target.value as AnswerKey["conflictPolicy"] }))}>
             <option value="zero">Hold for review (0 pts)</option>
             <option value="score-filled">Score the filled bubbles</option>
           </select>
@@ -121,7 +121,7 @@ export function ScoringRules({ answerKey, onChange, keySources, onExport, onImpo
         <summary className="cursor-pointer text-sm font-medium">Grading Scale &amp; Key Tools</summary>
         <div className="mt-3 space-y-3">
           <label className="block"><span className={label}>Grade cutoffs</span>
-            <input className={`${input} w-full`} value={bands} onChange={(e) => setBands(e.target.value)} aria-label="Grade bands" placeholder="A≥90, B≥80, C≥70, D≥60, F≥0"
+            <input className={`${input} w-full`} value={bands} onChange={(e) => setBands(e.target.value)} name="grade-bands" aria-label="Grade bands" placeholder="A≥90, B≥80, C≥70, D≥60, F≥0"
               onBlur={() => {
                 const parsed = bands.split(",").map((x) => /^\s*([^≥>]+?)\s*(?:≥|>=)\s*(\d+(?:\.\d+)?)\s*$/.exec(x)).filter((m): m is RegExpExecArray => !!m).map((m) => ({ label: m[1], minPercent: Number(m[2]) }));
                 if (parsed.length) onChange(updateKey(answerKey, { gradeBands: parsed }));
@@ -129,13 +129,13 @@ export function ScoringRules({ answerKey, onChange, keySources, onExport, onImpo
           </label>
           {setLabels.length > 1 && <SetMappings answerKey={answerKey} onChange={onChange} />}
           {keySources.length > 0 && (
-            <select className={`${input} w-full`} value="" aria-label="Take key from a scanned sheet" onChange={(e) => keySources.find((s) => s.id === e.target.value)?.apply()}>
+            <select className={`${input} w-full`} value="" name="key-from-sheet" aria-label="Take key from a scanned sheet" onChange={(e) => keySources.find((s) => s.id === e.target.value)?.apply()}>
               <option value="" disabled>Use a scanned sheet as key…</option>
               {keySources.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
             </select>
           )}
           <div className="grid grid-cols-3 gap-2 text-center text-sm">
-            <label className={`${full} cursor-pointer`}>Import Key<input type="file" accept=".json,application/json" className="sr-only" onChange={(e) => { onImport(e.target.files?.[0]); e.target.value = ""; }} /></label>
+            <label className={`${full} cursor-pointer`}>Import Key<input name="key-file" type="file" accept=".json,application/json" className="sr-only" onChange={(e) => { onImport(e.target.files?.[0]); e.target.value = ""; }} /></label>
             <button type="button" className={full} onClick={onExport}>Export Key</button>
             <button type="button" className={`${full} text-red-700 dark:text-red-300`} onClick={onReset}>Reset Key</button>
           </div>
@@ -241,7 +241,7 @@ function SetMappings({ answerKey, onChange }: { answerKey: AnswerKey; onChange: 
         ))}
       </div>
       <p className="mt-2 text-xs text-zinc-500">One line per printed question: <code>printed:master[:SHUFFLE]</code>, e.g. <code>1:7:CABD</code> = printed Q1 is master Q7 and its printed A,B,C,D are master C,A,B,D. Empty = same as the key.</p>
-      <textarea className={`${input} mt-2 h-32 w-full font-mono text-xs`} value={text} onChange={(e) => setText(e.target.value)} aria-label={`Mapping for set ${active}`} />
+      <textarea name={`set-mapping-${active}`} className={`${input} mt-2 h-32 w-full font-mono text-xs`} value={text} onChange={(e) => setText(e.target.value)} aria-label={`Mapping for set ${active}`} />
       <div className="mt-2 flex items-center gap-2">
         <button type="button" className="rounded-md bg-indigo-600 px-3 py-1 text-white hover:bg-indigo-700"
           onClick={() => {

@@ -14,10 +14,11 @@ import { AUDIT_KINDS, AUDIT_LABEL, type AuditKind } from "@/lib/admin/audit";
 import { CLASE_FORMULA, type GradingFormula, labGrade, lectureGrade, termGrade, validateFormula } from "@/lib/admin/formula";
 import { isAdmin, type Role } from "@/lib/roles/policy";
 import { parseEmailList } from "@/lib/access-requests";
+import { adminOverview } from "@/lib/admin/overview";
 
 type Tab = "faculty" | "access" | "syllabi" | "audit" | "policy";
-const input = "rounded border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900";
-const btn = "rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-900";
+const input = "v-input";
+const btn = "v-btn";
 const errText = (e: unknown) => (e as { data?: { message?: string } })?.data?.message ?? (e as Error)?.message ?? String(e);
 const when = (t: number) => new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
@@ -46,14 +47,26 @@ export default function AdminPortal() {
 function Portal({ orgId, myUserId, role }: { orgId: Id<"orgs">; myUserId: Id<"users">; role: Role }) {
   const [tab, setTab] = useState<Tab>("faculty");
   const pending = useQuery(api.admin.pendingCount, { orgId });
-  const tabs: [Tab, string][] = [["faculty", "Faculty"], ["access", pending ? `Access · ${pending} pending` : "Access"], ["syllabi", "Syllabi"], ["audit", "Audit trail"], ["policy", "Policy & grading"]];
+  const faculty = useQuery(api.admin.listFaculty, { orgId });
+  const syllabi = useQuery(api.syllabi.listByOrg, { orgId });
+  const exams = useQuery(api.exams.listByOrg, { orgId });
+  const tiles = adminOverview({ faculty, pending, syllabi, exams });
+  const tabs: [Tab, string][] = [["faculty", "Faculty"], ["access", "Access"], ["syllabi", "Syllabi"], ["audit", "Audit Trail"], ["policy", "Policy & Grading"]];
   return (
     <div className="flex flex-col">
-      <div role="toolbar" aria-label="Admin sections" data-testid="page-toolbar" className="flex flex-wrap items-center gap-2 border-b border-zinc-200 px-4 py-2 text-sm dark:border-zinc-800">
-        <div className="flex gap-1" role="tablist">
+      <dl className="mx-auto grid w-full max-w-6xl grid-cols-2 gap-2 px-4 pt-4 sm:grid-cols-4" data-testid="admin-overview">
+        {tiles.map((t) => (
+          <div key={t.id} className={`v-panel px-3 py-2 ${t.warn ? "!border-gold bg-gold-tint" : ""}`} data-testid={`overview-${t.id}`}>
+            <dt className="text-xs font-medium text-zinc-500">{t.label}</dt>
+            <dd className="text-xl font-bold tabular-nums">{t.value ?? "–"}</dd>
+          </div>
+        ))}
+      </dl>
+      <div role="toolbar" aria-label="Admin sections" data-testid="page-toolbar" className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm">
+        <div className="v-tabs max-w-full overflow-x-auto" role="tablist">
           {tabs.map(([t, label]) => (
             <button key={t} role="tab" type="button" aria-selected={tab === t} onClick={() => setTab(t)}
-              className={`rounded-md px-3 py-1 ${tab === t ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"}`}>{label}</button>
+              className="v-tab inline-flex items-center gap-1.5">{label}{t === "access" && !!pending && <span className="v-badge v-badge-gold !text-[11px]" data-testid="access-pending-badge" title={`${pending} pending request${pending > 1 ? "s" : ""}`}>{pending}</span>}</button>
           ))}
         </div>
         <span className="ml-auto text-xs text-zinc-500">Signed in as {role}</span>
@@ -80,22 +93,22 @@ function Faculty({ orgId, myUserId }: { orgId: Id<"orgs">; myUserId: Id<"users">
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <input aria-label="Search faculty" className={`${input} w-64`} placeholder="Search name, email or role" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input name="search-faculty" aria-label="Search faculty" className={`${input} w-64`} placeholder="Search name, email or role" value={q} onChange={(e) => setQ(e.target.value)} />
         <p className="ml-auto text-xs text-zinc-500">Add or approve faculty in the <b>Access</b> tab.</p>
       </div>
       {err && <p role="alert" className="text-sm text-red-600">{err}</p>}
-      <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900"><tr><th className="px-3 py-2">Name</th><th className="px-3 py-2">Email</th><th className="px-3 py-2">Role</th><th className="px-3 py-2 text-right">Access</th></tr></thead>
+      <div className="v-panel overflow-x-auto">
+        <table className="v-table">
+          <thead><tr><th className="px-3 py-2">Name</th><th className="px-3 py-2">Email</th><th className="px-3 py-2">Role</th><th className="px-3 py-2 text-right">Access</th></tr></thead>
           <tbody>
             {rows === undefined && <tr><td colSpan={4} className="px-3 py-6 text-center text-zinc-500">Loading…</td></tr>}
             {shown.map((r) => {
               const locked = r.role === "owner" || r.userId === myUserId;
               return (
-                <tr key={r.userId} className="border-t border-zinc-100 dark:border-zinc-800" data-testid={`faculty-${r.email}`}>
+                <tr key={r.userId} data-testid={`faculty-${r.email}`}>
                   <td className="px-3 py-2">{r.name || "—"}{r.userId === myUserId && <span className="ml-1 text-xs text-zinc-400">(you)</span>}</td>
                   <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{r.email}</td>
-                  <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${r.role === "admin" || r.role === "owner" ? "bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-200" : "bg-zinc-100 dark:bg-zinc-800"}`}>{r.role}</span></td>
+                  <td className="px-3 py-2"><span className={`v-badge ${r.role === "admin" || r.role === "owner" ? "v-badge-brand" : ""}`}>{r.role}</span></td>
                   <td className="px-3 py-2 text-right">
                     {locked ? <span className="text-xs text-zinc-400">{r.role === "owner" ? "School owner" : "Cannot change your own role"}</span> : (
                       <span className="inline-flex gap-2">
@@ -133,19 +146,19 @@ function Access({ orgId }: { orgId: Id<"orgs"> }) {
   return (
     <section className="grid gap-6 lg:grid-cols-2">
       <div className="space-y-3" data-testid="pending-requests">
-        <h2 className="text-base font-semibold">Pending requests {data ? <span className="ml-1 rounded-full bg-gold-tint px-2 py-0.5 text-xs text-gold-hover dark:text-gold">{data.pending.length}</span> : null}</h2>
+        <h2 className="text-base font-semibold">Pending requests {data ? <span className="v-badge v-badge-gold ml-1">{data.pending.length}</span> : null}</h2>
         <p className="text-xs text-zinc-500">People signed in with an @usa.edu.ph account who asked for faculty access. Students share the domain, so approve only faculty.</p>
         {err && <p role="alert" className="text-sm text-red-600">{err}</p>}
-        <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+        <ul className="v-panel divide-y divide-[var(--border)] overflow-hidden">
           {data === undefined && <li className="px-3 py-6 text-center text-sm text-zinc-500">Loading…</li>}
           {data && !data.pending.length && <li className="px-3 py-6 text-center text-sm text-zinc-500">No pending requests.</li>}
           {data?.pending.map((r) => (
             <li key={r._id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm" data-testid={`request-${r.email}`}>
               <div className="min-w-0 flex-1"><p className="truncate font-medium">{r.name || r.email}</p><p className="truncate text-xs text-zinc-500">{r.email} · {when(r.requestedAt)}</p></div>
-              <select aria-label={`Role for ${r.email}`} className={input} value={grant[r._id] ?? "teacher"} onChange={(e) => setGrant((g) => ({ ...g, [r._id]: e.target.value as "teacher" | "admin" }))}>
+              <select name={`role-${r._id}`} aria-label={`Role for ${r.email}`} className={input} value={grant[r._id] ?? "teacher"} onChange={(e) => setGrant((g) => ({ ...g, [r._id]: e.target.value as "teacher" | "admin" }))}>
                 <option value="teacher">Teacher</option><option value="admin">Admin</option>
               </select>
-              <button type="button" className="rounded-md bg-indigo-600 px-3 py-1 text-xs font-semibold text-white hover:bg-indigo-700" onClick={() => run(() => decide({ orgId, requestId: r._id, decision: "approve", role: grant[r._id] ?? "teacher" }))}>Approve</button>
+              <button type="button" className="v-btn v-btn-primary !px-3 !py-1 !text-xs" onClick={() => run(() => decide({ orgId, requestId: r._id, decision: "approve", role: grant[r._id] ?? "teacher" }))}>Approve</button>
               <button type="button" className={btn} onClick={() => run(() => decide({ orgId, requestId: r._id, decision: "reject" }))}>Reject</button>
             </li>
           ))}
@@ -155,20 +168,20 @@ function Access({ orgId }: { orgId: Id<"orgs"> }) {
       <div className="space-y-3">
         <h2 className="text-base font-semibold">Pre-authorize faculty</h2>
         <p className="text-xs text-zinc-500">Paste @usa.edu.ph emails separated by commas or new lines. They are bound to the chosen role the moment they sign in.</p>
-        <textarea aria-label="Faculty emails" className={`${input} h-28 w-full font-mono text-xs`} placeholder={"ana@usa.edu.ph\nben@usa.edu.ph, carla@usa.edu.ph"} value={emails} onChange={(e) => setEmails(e.target.value)} />
+        <textarea name="faculty-emails" aria-label="Faculty emails" className={`${input} h-28 w-full font-mono text-xs`} placeholder={"ana@usa.edu.ph\nben@usa.edu.ph, carla@usa.edu.ph"} value={emails} onChange={(e) => setEmails(e.target.value)} />
         <div className="flex flex-wrap items-center gap-2">
-          <select aria-label="Role to grant" className={input} value={role} onChange={(e) => setRole(e.target.value as "teacher" | "admin")}><option value="teacher">Teacher</option><option value="admin">Admin</option></select>
-          <button type="button" className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40" disabled={!preview.valid.length && !preview.invalid.length}
+          <select name="role-to-grant" aria-label="Role to grant" className={input} value={role} onChange={(e) => setRole(e.target.value as "teacher" | "admin")}><option value="teacher">Teacher</option><option value="admin">Admin</option></select>
+          <button type="button" className="v-btn v-btn-primary px-4" disabled={!preview.valid.length && !preview.invalid.length}
             onClick={() => { setMsg(null); setErr(null); preAuthorize({ orgId, emails, role }).then((r) => { setMsg({ ok: r.invalid.length === 0, text: [r.queued.length && `${r.queued.length} will be bound at first sign-in`, r.bound.length && `${r.bound.length} already signed in: bound now`, r.unchanged.length && `${r.unchanged.length} already had access`, r.invalid.length && `Not accepted: ${r.invalid.join(", ")}`].filter(Boolean).join(" · ") }); if (!r.invalid.length) setEmails(""); }).catch((e) => setErr(errText(e))); }}>
             Authorize {preview.valid.length || ""} {preview.valid.length === 1 ? "person" : "people"}
           </button>
         </div>
         {msg && <p role="status" className={`text-sm ${msg.ok ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`} data-testid="preauth-result">{msg.text}</p>}
         <h3 className="pt-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Waiting for first sign-in ({data?.preAuthorized.length ?? 0})</h3>
-        <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+        <ul className="v-panel divide-y divide-[var(--border)] overflow-hidden">
           {data && !data.preAuthorized.length && <li className="px-3 py-4 text-center text-sm text-zinc-500">None.</li>}
           {data?.preAuthorized.map((p) => (
-            <li key={p._id} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className="min-w-0 flex-1 truncate">{p.email}</span><span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">{p.role}</span>
+            <li key={p._id} className="flex items-center gap-2 px-3 py-1.5 text-sm"><span className="min-w-0 flex-1 truncate">{p.email}</span><span className="v-badge">{p.role}</span>
               <button type="button" className="text-xs text-red-600 underline" onClick={() => run(() => revoke({ orgId, id: p._id }))}>Revoke</button></li>
           ))}
         </ul>
@@ -186,16 +199,16 @@ function Syllabi({ orgId }: { orgId: Id<"orgs"> }) {
   const shown = (rows ?? []).filter((r) => `${r.courseCode} ${r.courseTitle} ${r.term} ${r.uploadedBy}`.toLowerCase().includes(q.toLowerCase()));
   return (
     <section className="space-y-3">
-      <input aria-label="Search syllabi" className={`${input} w-72`} placeholder="Search course, term or uploader" value={q} onChange={(e) => setQ(e.target.value)} />
+      <input name="search-syllabi" aria-label="Search syllabi" className={`${input} w-72`} placeholder="Search course, term or uploader" value={q} onChange={(e) => setQ(e.target.value)} />
       {err && <p role="alert" className="text-sm text-red-600">{err}</p>}
-      <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900"><tr><th className="px-3 py-2">Course</th><th className="px-3 py-2">Term</th><th className="px-3 py-2">PO / CO / Modules</th><th className="px-3 py-2">Uploaded by</th><th className="px-3 py-2">Updated</th><th className="px-3 py-2" /></tr></thead>
+      <div className="v-panel overflow-x-auto">
+        <table className="v-table">
+          <thead><tr><th className="px-3 py-2">Course</th><th className="px-3 py-2">Term</th><th className="px-3 py-2">PO / CO / Modules</th><th className="px-3 py-2">Uploaded by</th><th className="px-3 py-2">Updated</th><th className="px-3 py-2" /></tr></thead>
           <tbody>
             {rows === undefined && <tr><td colSpan={6} className="px-3 py-6 text-center text-zinc-500">Loading…</td></tr>}
             {rows && !shown.length && <tr><td colSpan={6} className="px-3 py-6 text-center text-zinc-500">{rows.length ? "No match." : "No syllabi yet. Faculty add them by dropping a PDF in the designer."}</td></tr>}
             {shown.map((r) => (
-              <tr key={r._id} className="border-t border-zinc-100 dark:border-zinc-800">
+              <tr key={r._id}>
                 <td className="px-3 py-2"><b>{r.courseCode}</b> {r.courseTitle}</td>
                 <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">{r.term || "—"}</td>
                 <td className="px-3 py-2 tabular-nums">{r.poCount} / {r.coCount} / {r.moduleCount}</td>
@@ -222,23 +235,23 @@ function Audit({ orgId }: { orgId: Id<"orgs"> }) {
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <input aria-label="Search audit trail" type="search" className={`${input} w-72`} placeholder="Search person, exam, question, reason…" value={text} onChange={(e) => setText(e.target.value)} />
+        <input name="search-audit" aria-label="Search audit trail" type="search" className={`${input} w-72`} placeholder="Search person, exam, question, reason…" value={text} onChange={(e) => setText(e.target.value)} />
         <div className="flex flex-wrap gap-1">
           {AUDIT_KINDS.map((k) => (
             <button key={k} type="button" aria-pressed={kinds.includes(k)} onClick={() => toggle(k)}
-              className={`rounded-full border px-2.5 py-0.5 text-xs ${kinds.includes(k) ? "border-indigo-500 bg-indigo-50 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-200" : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"}`}>{AUDIT_LABEL[k]}</button>
+              className={`rounded-full border px-2.5 py-0.5 text-xs ${kinds.includes(k) ? "border-[var(--brand)] bg-[var(--brand-tint)] text-[var(--brand-text-on-tint)]" : "border-[var(--border)] text-zinc-600 hover:border-[var(--brand-soft)] dark:text-zinc-400"}`}>{AUDIT_LABEL[k]}</button>
           ))}
         </div>
         {res && <span className="ml-auto text-xs text-zinc-500">{res.rows.length} of {res.total}</span>}
       </div>
-      <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900"><tr><th className="px-3 py-2">When</th><th className="px-3 py-2">Who</th><th className="px-3 py-2">Action</th><th className="px-3 py-2">Exam</th><th className="px-3 py-2">What</th></tr></thead>
+      <div className="v-panel overflow-x-auto">
+        <table className="v-table">
+          <thead><tr><th className="px-3 py-2">When</th><th className="px-3 py-2">Who</th><th className="px-3 py-2">Action</th><th className="px-3 py-2">Exam</th><th className="px-3 py-2">What</th></tr></thead>
           <tbody>
             {res === undefined && <tr><td colSpan={5} className="px-3 py-6 text-center text-zinc-500">Loading…</td></tr>}
             {res && !res.rows.length && <tr><td colSpan={5} className="px-3 py-6 text-center text-zinc-500">Nothing matches.</td></tr>}
             {res?.rows.map((r) => (
-              <tr key={r.id} className="border-t border-zinc-100 align-top dark:border-zinc-800">
+              <tr key={r.id} className="align-top">
                 <td className="whitespace-nowrap px-3 py-2 text-zinc-500">{when(r.at)}</td>
                 <td className="px-3 py-2">{r.actorName}<div className="text-xs text-zinc-400">{r.actorEmail}</div></td>
                 <td className="whitespace-nowrap px-3 py-2">{r.label}</td>
@@ -263,7 +276,7 @@ function Policy({ orgId }: { orgId: Id<"orgs"> }) {
   useEffect(() => { if (policy) { setF(policy.gradingFormula); setDomains(policy.allowedDomains.join(", ")); } }, [policy]);
   const errors = validateFormula(f);
   const num = (k: keyof GradingFormula) => (
-    <input type="number" min={0} max={100} className={`${input} w-20`} value={f[k]} onChange={(e) => setF((cur) => ({ ...cur, [k]: Number(e.target.value), ...(k === "lectureWeight" ? { labWeight: 100 - Number(e.target.value) } : k === "labWeight" ? { lectureWeight: 100 - Number(e.target.value) } : {}) }))} />
+    <input id={`policy-${k}`} name={`policy-${k}`} type="number" min={0} max={100} className={`${input} w-20`} value={f[k]} onChange={(e) => setF((cur) => ({ ...cur, [k]: Number(e.target.value), ...(k === "lectureWeight" ? { labWeight: 100 - Number(e.target.value) } : k === "labWeight" ? { lectureWeight: 100 - Number(e.target.value) } : {}) }))} />
   );
   return (
     <section className="grid gap-6 md:grid-cols-2">
@@ -271,10 +284,10 @@ function Policy({ orgId }: { orgId: Id<"orgs"> }) {
         <h2 className="text-base font-semibold">Global grading formula</h2>
         <p className="text-xs text-zinc-500">Default is the USA CLASE standard. Term Grade = {f.lectureWeight}% Lecture + {f.labWeight}% Lab.</p>
         <div className="grid grid-cols-[1fr_auto] items-center gap-2 text-sm">
-          <label>Lecture weight (% of term grade)</label>{num("lectureWeight")}
-          <label>Lab weight (% of term grade)</label>{num("labWeight")}
-          <label>Major exam (% of lecture grade)</label>{num("lectureMajorExamWeight")}
-          <label>Lab exam (% of lab grade)</label>{num("labExamWeight")}
+          <label htmlFor="policy-lectureWeight">Lecture weight (% of term grade)</label>{num("lectureWeight")}
+          <label htmlFor="policy-labWeight">Lab weight (% of term grade)</label>{num("labWeight")}
+          <label htmlFor="policy-lectureMajorExamWeight">Major exam (% of lecture grade)</label>{num("lectureMajorExamWeight")}
+          <label htmlFor="policy-labExamWeight">Lab exam (% of lab grade)</label>{num("labExamWeight")}
         </div>
         <p className="rounded-md bg-zinc-50 p-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
           Example: major exam 80, class standing 100 → lecture {lectureGrade(80, 100, f)}; lab exam 100, activities 50 → lab {labGrade(100, 50, f)}; term grade {termGrade(lectureGrade(80, 100, f), labGrade(100, 50, f), f)}.
@@ -284,10 +297,10 @@ function Policy({ orgId }: { orgId: Id<"orgs"> }) {
       <div className="space-y-3">
         <h2 className="text-base font-semibold">Domain allowlist policy</h2>
         <p className="text-xs text-zinc-500">Only people at these domains can be added to this school. Leave empty to rely on the deployment-wide sign-in allowlist (<code>@usa.edu.ph</code>). Subdomains are not matched.</p>
-        <input aria-label="Allowed domains" className={`${input} w-full`} placeholder="usa.edu.ph, faculty.usa.edu.ph" value={domains} onChange={(e) => setDomains(e.target.value)} />
+        <input name="allowed-domains" aria-label="Allowed domains" className={`${input} w-full`} placeholder="usa.edu.ph, faculty.usa.edu.ph" value={domains} onChange={(e) => setDomains(e.target.value)} />
       </div>
       <div className="md:col-span-2">
-        <button type="button" className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40" disabled={errors.length > 0}
+        <button type="button" className="v-btn v-btn-primary px-4" disabled={errors.length > 0}
           onClick={() => { setMsg(null); save({ orgId, gradingFormula: f, allowedDomains: domains.split(/[\s,;]+/).filter(Boolean) }).then(() => setMsg({ ok: true, text: "Policy saved." })).catch((e) => setMsg({ ok: false, text: errText(e) })); }}>Save policy</button>
         {msg && <span role="status" className={`ml-3 text-sm ${msg.ok ? "text-emerald-700" : "text-red-600"}`}>{msg.text}</span>}
       </div>

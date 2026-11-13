@@ -10,7 +10,9 @@ import { writeStoredTemplate } from "@/lib/storage/template-store";
 import type { LayoutSettings } from "@/lib/omr/schema";
 import DebugDrawer, { IssueList } from "./DebugDrawer";
 import QuickPresets from "./QuickPresets";
-import SettingsPanel from "./SettingsPanel";
+import { ExamDetailsFields, SheetSetupFields } from "./SettingsPanel";
+import StepSection from "./StepSection";
+import { designerSteps } from "@/lib/omr/designer-steps";
 import Workspace from "@/components/shell/Workspace";
 import SyllabusDropzone from "./SyllabusDropzone";
 import SheetPreview, { type PreviewOverlays } from "./SheetPreview";
@@ -59,6 +61,7 @@ export default function SheetDesigner() {
   const pages = result?.template.pages.length ?? 0;
   const page = Math.min(pageIndex, Math.max(0, pages - 1));
   const canExport = !!result && "result" in outcome && errors.length === 0 && !stale;
+  const steps = designerSteps({ title: settings.title, subtitle: settings.subtitle, questions: result?.stats.questions ?? 0, pages, layoutErrors: errors.length });
   const summary = result ? sheetSummary({ questions: result.stats.questions, pages, paper: settings.paper, layoutErrors: errors.length }) : null;
 
   // Hand the current valid template to the scanner page (same browser).
@@ -102,10 +105,10 @@ export default function SheetDesigner() {
           {summary.tone === "error" && <button type="button" className="ml-2 underline" onClick={() => setDrawer("issues")}>Details</button>}
         </p>
       )}
-      <button type="button" disabled={!canExport || busy} data-testid="download-pdf" className={`${btn} w-full justify-center bg-indigo-600 py-2.5 text-white hover:bg-indigo-700`} onClick={exportPdf}>
+      <button type="button" disabled={!canExport || busy} data-testid="download-pdf" className="v-btn v-btn-primary w-full py-2.5" onClick={exportPdf}>
         {busy ? "Preparing PDF…" : "Download Answer Sheet (PDF)"}
       </button>
-      <button type="button" disabled={kitBusy} className="w-full rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800"
+      <button type="button" disabled={kitBusy} className="v-btn w-full border-transparent bg-transparent text-zinc-600 dark:text-zinc-400"
         title="A ready-made 20-question exam with answer key, class list and practice scans" onClick={downloadKit}>
         {kitBusy ? "Preparing…" : "Load Sample Exam"}
       </button>
@@ -118,11 +121,31 @@ export default function SheetDesigner() {
         controlsLabel="Sheet settings"
         footer={footer}
         body={
-          <div className="space-y-6">
-            <QuickPresets settings={settings} onApply={(s) => { setSettings(s); setPageIndex(0); }} />
-            <SyllabusDropzone settings={settings} onConfigure={(next) => { setSettings(next); setPageIndex(0); }} />
-            <SettingsPanel settings={settings} onChange={setSettings} />
-            <details className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800" data-testid="developer-tools">
+          <div className="space-y-3" data-testid="designer-steps">
+            <StepSection n={1} label="Exam Details" status={steps[0].status} defaultOpen testId="step-details">
+              <ExamDetailsFields settings={settings} onChange={setSettings} />
+              <SyllabusDropzone settings={settings} onConfigure={(next) => { setSettings(next); setPageIndex(0); }} />
+            </StepSection>
+            <StepSection n={2} label="Answer Sheet Setup" status={steps[1].status} defaultOpen testId="step-setup">
+              <QuickPresets settings={settings} onApply={(s) => { setSettings(s); setPageIndex(0); }} />
+              <SheetSetupFields settings={settings} onChange={setSettings} />
+            </StepSection>
+            <StepSection n={3} label="Review & Download" status={steps[2].status} testId="step-review">
+              <ul className="space-y-1.5 text-sm" data-testid="review-checklist">
+                {steps.slice(0, 2).map((st) => (
+                  <li key={st.id} className="flex items-center gap-2">
+                    <span aria-hidden className={st.status === "done" ? "text-emerald-600" : st.status === "warn" ? "text-amber-600" : "text-zinc-400"}>{st.status === "done" ? "✓" : st.status === "warn" ? "!" : "○"}</span>
+                    {st.label}
+                  </li>
+                ))}
+                <li className="flex items-center gap-2">
+                  <span aria-hidden className={steps[2].status === "done" ? "text-emerald-600" : "text-amber-600"}>{steps[2].status === "done" ? "✓" : "!"}</span>
+                  {summary ? summary.text.replace(/^✓\s*/, "") : "Checking the layout…"}
+                </li>
+              </ul>
+              {errors.length > 0 && <div className="v-panel overflow-hidden"><IssueList issues={errors.slice(0, 5)} /></div>}
+              <p className="text-xs text-zinc-500">Use the buttons below to download the printable answer sheet or a ready-made sample exam.</p>
+            <details className="v-panel p-3" data-testid="developer-tools">
               <summary className="cursor-pointer text-sm font-medium">Advanced / Developer Tools</summary>
               <div className="mt-3 space-y-2 text-sm">
                 <label className="flex items-center gap-2 text-zinc-600 dark:text-zinc-400"><input type="checkbox" className="accent-indigo-600" checked={overlays.cells} onChange={(e) => setOverlays((o) => ({ ...o, cells: e.target.checked }))} /> Show reference cells</label>
@@ -135,6 +158,7 @@ export default function SheetDesigner() {
                 {result && <p className="font-mono text-[11px] text-zinc-500">{result.stats.bubbles} bubbles · {result.stats.marksPerPage} marks/page · #{result.template.layoutHash}</p>}
               </div>
             </details>
+            </StepSection>
           </div>
         }
       >

@@ -99,16 +99,16 @@ export default function ReviewModal({ sheet, scan, rawFields, patches, answerKey
         </div>
 
         <div className="mb-3 flex flex-wrap items-end gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/50">
-          <label className="flex flex-col gap-1">Roll number<input className={`${input} w-36 font-mono`} value={roll} onChange={(e) => setRoll(e.target.value.replace(/[^0-9A-Za-z-]/g, ""))} /></label>
+          <label className="flex flex-col gap-1">Roll number<input id="review-roll" name="roll-number" autoComplete="off" className={`${input} w-36 font-mono`} value={roll} onChange={(e) => setRoll(e.target.value.replace(/[^0-9A-Za-z-]/g, ""))} /></label>
           {setOptions.length > 0 && (
             <label className="flex flex-col gap-1">Exam set
-              <select className={input} value={set} onChange={(e) => setSet(e.target.value)}>
+              <select id="review-exam-set" name="exam-set" className={input} value={set} onChange={(e) => setSet(e.target.value)}>
                 <option value="">(unread)</option>
                 {setOptions.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </label>
           )}
-          <label className="flex min-w-[240px] flex-1 flex-col gap-1">Reason (saved in the audit log)<input className={input} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
+          <label className="flex min-w-[240px] flex-1 flex-col gap-1">Reason (saved in the audit log)<input id="review-reason" name="reason" autoComplete="off" className={input} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
           <button type="button" disabled={!pendingChanges || !reason.trim()} onClick={saveAll}
             className="rounded-md bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-700 disabled:opacity-40">
             Save {pendingChanges || ""} change{pendingChanges === 1 ? "" : "s"}

@@ -149,14 +149,21 @@ function SectionCard({ section, index, total, onChange, onRemove, onMove }: {
   );
 }
 
-export default function SettingsPanel({ settings, onChange }: { settings: LayoutSettings; onChange: (s: LayoutSettings) => void }) {
+type PanelProps = { settings: LayoutSettings; onChange: (s: LayoutSettings) => void };
+const makeSet = ({ settings, onChange }: PanelProps) => {
   const set = <K extends keyof LayoutSettings>(k: K, v: LayoutSettings[K]) => onChange(normalizeSettings({ ...settings, [k]: v }));
   const setSection = (i: number, sec: SectionSettings) => set("sections", settings.sections.map((s, j) => (j === i ? sec : s)));
+  return { set, setSection };
+};
 
+/** Step 1 of the designer: the printed exam title, course line and paper size. */
+export function ExamDetailsFields(props: PanelProps & { showHeading?: boolean }) {
+  const { settings } = props;
+  const { set } = makeSet(props);
+  const showHeading = props.showHeading ?? false;
   return (
-    <div className="space-y-6">
       <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Exam details</h2>
+        {showHeading && <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Exam details</h2>}
         <Field label="Exam name (printed title)">{(id) => <input id={id} className={inputCls} value={settings.title} maxLength={80} onChange={(e) => set("title", e.target.value)} />}</Field>
         <Field label="Course / subtitle">{(id) => <input id={id} className={inputCls} value={settings.subtitle} maxLength={80} placeholder="e.g. IT 321 Information Assurance and Security 1" onChange={(e) => set("subtitle", e.target.value)} />}</Field>
         <Field label="Paper size">{(id) => (
@@ -166,7 +173,15 @@ export default function SettingsPanel({ settings, onChange }: { settings: Layout
           </select>
         )}</Field>
       </section>
+  );
+}
 
+/** Step 2 of the designer: student ID, exam sets, question sections and advanced layout. */
+export function SheetSetupFields(props: PanelProps) {
+  const { settings } = props;
+  const { set, setSection } = makeSet(props);
+  return (
+    <div className="space-y-6">
       <section className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">Student ID &amp; exam sets</h2>
         <div className="grid grid-cols-2 gap-2">
@@ -237,6 +252,15 @@ export default function SettingsPanel({ settings, onChange }: { settings: Layout
           </div>
         </div>
       </details>
+    </div>
+  );
+}
+
+export default function SettingsPanel(props: PanelProps) {
+  return (
+    <div className="space-y-6">
+      <ExamDetailsFields {...props} showHeading />
+      <SheetSetupFields {...props} />
     </div>
   );
 }

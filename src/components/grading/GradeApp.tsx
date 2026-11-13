@@ -35,6 +35,7 @@ import type { ConflictResolution } from "@/lib/sync/types";
 import type { DecodedFields } from "@/lib/vision/types";
 import ConflictPanel from "./ConflictPanel";
 import Gradebook from "./Gradebook";
+import GradeSummaryStrip from "./GradeSummaryStrip";
 import ItemAnalysisView from "./ItemAnalysisView";
 import KeyCanvas, { ScoringRules } from "./KeyEditor";
 import OutcomesView from "./OutcomesView";
@@ -357,7 +358,7 @@ export default function GradeApp() {
         body={
           <div className="space-y-3 text-sm text-zinc-500">
             <p>Nothing to grade yet.</p>
-            <label className={`${outline} cursor-pointer`}>Load template JSON<input type="file" accept=".json,application/json" className="sr-only" onChange={(e) => onTemplateFile(e.target.files?.[0])} /></label>
+            <label className={`${outline} cursor-pointer`}>Load template JSON<input id="grade-template-file" name="template-file" type="file" accept=".json,application/json" className="sr-only" onChange={(e) => onTemplateFile(e.target.files?.[0])} /></label>
             {notice && <p className="text-sm text-red-600">{notice}</p>}
           </div>
         }>
@@ -440,6 +441,7 @@ export default function GradeApp() {
           <div className="space-y-4 p-4">
             {tab === "gradebook" && (graded?.sheets.length ? (
               <>
+                <GradeSummaryStrip sheets={graded.sheets} />
                 <ConflictPanel groups={groups} sheets={sourceById as Map<string, SyncedSheet>} onKeep={keep} onOpen={setOpenId} />
                 <Gradebook sheets={graded.sheets} onOpen={setOpenId} names={names} />
               </>

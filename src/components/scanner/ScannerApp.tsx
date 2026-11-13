@@ -4,12 +4,14 @@ import { EmptyHero } from "@/components/brand/Brand";
 import Workspace from "@/components/shell/Workspace";
 import { useCloudSession } from "@/components/cloud/CloudSession";
 import { useQuery } from "convex/react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import { bodyToAnswerKey } from "@/lib/cloud/convert";
 import type { AnswerKey } from "@/lib/grading/types";
 import { playChime, readAutoSnap, readMuted, unlockAudio, writeAutoSnap, writeMuted } from "@/lib/audio/chime";
 import { type InstantResult, instantResult } from "@/lib/scan-result";
+import { queueState, queueSummary, type QueueStateId } from "@/lib/scan-queue";
 import { AutoSnapGate } from "@/lib/vision/auto-snap";
 import { OMRTemplateSchema, type OMRTemplate } from "@/lib/omr/schema";
 import { readStoredKey, readStoredTemplate, writeStoredTemplate } from "@/lib/storage/template-store";
@@ -158,7 +160,10 @@ export default function ScannerApp() {
       {engine.state === "ready" ? "Scanner Ready" : engine.state === "error" ? `Scanner unavailable: ${engine.message}` : "Starting scanner…"}
     </p>
   );
-  const seg = (on: boolean) => `rounded-md px-3 py-1.5 text-sm ${on ? "bg-white font-semibold shadow-sm ring-1 ring-gold/50 dark:bg-zinc-800" : "text-zinc-600 hover:bg-white/70 dark:text-zinc-400"}`;
+  const queue = queueSummary(jobs);
+  const proceed = (cls: string) => queue.canProceed && (
+    <Link href="/grade" data-testid="proceed-to-grade" className={cls}>Proceed to Grade ({queue.scanned} sheet{queue.scanned === 1 ? "" : "s"}) →</Link>
+  );
   const toggleRow = "flex w-full items-center justify-between rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800";
   const sw = (on: boolean) => <span className={`inline-block h-4 w-8 rounded-full p-0.5 transition ${on ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"}`}><span className={`block size-3 rounded-full bg-white transition ${on ? "translate-x-4" : ""}`} /></span>;
 
@@ -170,13 +175,14 @@ export default function ScannerApp() {
         footer={
           <>
             {statusPill}
+            {proceed("v-btn w-full border-gold text-[var(--fg)] bg-gold-tint hover:!bg-gold-tint font-semibold")}
             {mode === "upload" ? (
-              <label className={`${btn} w-full cursor-pointer justify-center bg-indigo-600 py-2.5 text-white hover:bg-indigo-700 ${ready ? "" : "pointer-events-none opacity-40"}`} data-testid="scan-primary">
+              <label className={`v-btn v-btn-primary w-full cursor-pointer py-2.5 ${ready ? "" : "pointer-events-none opacity-40"}`} data-testid="scan-primary">
                 Choose Photos to Scan…
                 <input ref={fileInput} type="file" accept="image/*" multiple className="sr-only" disabled={!ready} onChange={(e) => { onFiles(e.target.files); e.target.value = ""; }} />
               </label>
             ) : (
-              <button type="button" disabled={!ready || !canCapture} data-testid="scan-primary" className={`${btn} w-full justify-center bg-indigo-600 py-2.5 text-white hover:bg-indigo-700`} onClick={() => cameraApi.current?.capture()}>Scan Now</button>
+              <button type="button" disabled={!ready || !canCapture} data-testid="scan-primary" className="v-btn v-btn-primary w-full py-2.5" onClick={() => cameraApi.current?.capture()}>Scan Now</button>
             )}
           </>
         }
@@ -184,14 +190,23 @@ export default function ScannerApp() {
           <div className="space-y-4">
             <div>
               <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">Capture</h2>
-              <div className="grid grid-cols-2 gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-900" role="tablist">
+              <div className="v-tabs grid grid-cols-2" role="tablist" aria-label="How to scan">
                 {(["upload", "camera"] as const).map((m) => (
-                  <button key={m} role="tab" aria-selected={mode === m} type="button" className={seg(mode === m)} onClick={() => { setModeState(m); if (m === "camera") unlockAudio(); }}>{m === "upload" ? "Upload Photos" : "Camera"}</button>
+                  <button key={m} role="tab" aria-selected={mode === m} type="button" className="v-tab py-1.5 text-center text-sm" onClick={() => { setModeState(m); if (m === "camera") unlockAudio(); }}>{m === "upload" ? "Upload Photos" : "Camera"}</button>
                 ))}
               </div>
               {!template && <p className="mt-2 text-xs text-zinc-500">No exam yet. Design one in <b>1 · Design</b> and it appears here.</p>}
               {template && <p className="mt-2 text-xs text-zinc-500">{template.questionCount} questions · {template.pages.length} page{template.pages.length === 1 ? "" : "s"}</p>}
             </div>
+            <details key={jobs.length > 0 ? "after-first-scan" : "first-scan"} open={jobs.length === 0} className="v-panel bg-gold-tint" data-testid="scan-tips">
+              <summary className="cursor-pointer px-3 py-2 text-sm font-semibold">Scanning tips</summary>
+              <ul className="list-disc space-y-1 border-t border-[var(--border)] py-2 pl-7 pr-3 text-xs text-zinc-600 dark:text-zinc-300">
+                <li>Lay the sheet flat and fill the frame, with all 4 corner squares visible.</li>
+                <li>Use even light: avoid shadows and glare across the page.</li>
+                <li>Hold the phone steady and square to the paper.</li>
+                <li>Scan every page of a multi-page sheet.</li>
+              </ul>
+            </details>
             <div className="space-y-2">
               <button type="button" role="switch" aria-checked={autoSnap} data-testid="autosnap-toggle" className={toggleRow} title="Capture and grade automatically when all 4 corners hold steady"
                 onClick={() => { const a = !autoSnap; setAutoSnap(a); writeAutoSnap(a); unlockAudio(); if (a) rearm.current(); }}><span>Auto-Snap <span className="text-xs text-zinc-500">(camera)</span></span>{sw(autoSnap)}</button>
@@ -218,16 +233,25 @@ export default function ScannerApp() {
         <div className="space-y-4 p-4">
           {mode === "camera" && <div className="mx-auto max-w-2xl"><CameraPanel client={client.current} enabled={ready} rearmRef={rearm} autoSnap={autoSnap} apiRef={cameraApi} onAligned={setCanCapture} onCapture={(bmp) => runScan(`camera ${new Date().toLocaleTimeString()}`, bmp)} /></div>}
           {jobs.length > 0 && (
-            <ul className="divide-y divide-zinc-100 overflow-hidden rounded-lg border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-950">
-              {jobs.map((j) => (
-                <li key={j.id}>
-                  <button type="button" onClick={() => setSelected(j.id)} className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${selected === j.id ? "bg-indigo-50 dark:bg-indigo-500/10" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"}`}>
-                    <span className="min-w-0 flex-1 truncate">{j.name}</span>
-                    <JobBadge job={j} />
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <section aria-label="Scan queue" data-testid="scan-queue" className="space-y-2">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <h2 className="text-sm font-semibold">Scan queue</h2>
+                <p className="text-xs text-zinc-500" data-testid="queue-summary">
+                  {[queue.queued + queue.scanning && `${queue.queued + queue.scanning} in progress`, queue.done && `${queue.done} done`, queue.needsReview && `${queue.needsReview} need review`, queue.failed && `${queue.failed} couldn't be read`].filter(Boolean).join(" · ") || "Calibration scans only"}
+                </p>
+                <div className="ml-auto">{proceed("v-btn v-btn-primary")}</div>
+              </div>
+              <ul className="v-panel divide-y divide-[var(--border)] overflow-hidden">
+                {jobs.map((j) => (
+                  <li key={j.id}>
+                    <button type="button" onClick={() => setSelected(j.id)} className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${selected === j.id ? "bg-indigo-50 dark:bg-indigo-500/10" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"}`}>
+                      <span className="min-w-0 flex-1 truncate">{j.name}</span>
+                      <JobBadge job={j} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
 
         <section className="min-w-0" id="scan-detail">
@@ -260,13 +284,16 @@ function JobBadge({ job }: { job: Job }) {
   return <span className="flex items-center gap-1">{job.calibration && <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-medium text-sky-800 dark:bg-sky-500/15 dark:text-sky-300">calibration</span>}{job.cloud && <span data-testid="cloud-status" className={`text-[11px] ${job.cloud === "conflict" || job.cloud === "rejected" ? "text-amber-700" : job.cloud === "failed" ? "text-zinc-500" : "text-emerald-700"}`}>{CLOUD_LABEL[job.cloud]}</span>}<LocalBadge job={job} /></span>;
 }
 
+const STATE_BADGE: Record<QueueStateId, string> = {
+  queued: "", scanning: "", failed: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300",
+  "needs-review": "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300",
+  done: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+};
+
 function LocalBadge({ job }: { job: Job }) {
-  if (job.status === "error") return <span className="rounded bg-red-100 px-1.5 py-0.5 text-[11px] font-medium text-red-700 dark:bg-red-500/15 dark:text-red-300">{job.error?.code}</span>;
-  if (job.status !== "done") return <span className="text-[11px] text-zinc-500">{job.stage ?? job.status}…</span>;
-  const n = job.result!.fields.conflicts.length;
-  return n
-    ? <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">{n} to review</span>
-    : <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">OK</span>;
+  const { state, label } = queueState(job);
+  const n = job.result?.fields.conflicts.length ?? 0;
+  return <span data-testid="queue-state" data-state={state} className={`v-badge !text-[11px] ${STATE_BADGE[state]}`}>{state === "needs-review" ? `${n} to review` : label}{state === "scanning" ? "…" : ""}</span>;
 }
 
 function JobDetail({ job, template, diagnostics, tuning, onRescan }: { job: Job; template: OMRTemplate | null; diagnostics: boolean; tuning: ScanTuning; onRescan: (j: Job) => void }) {
@@ -436,9 +463,8 @@ function CameraPanel({ client, enabled, onCapture, rearmRef, autoSnap, apiRef, o
       {camError && <p className="text-xs text-red-600">Camera unavailable: {camError}</p>}
       <div className="flex items-center gap-2">
         <span className={`rounded-full px-2 py-0.5 text-xs ${aligned && g.ok ? "bg-emerald-100 text-emerald-700" : aligned ? "bg-amber-100 text-amber-800" : "bg-zinc-100 text-zinc-600"}`}>
-          {aligned ? (g.ok ? (autoSnap ? "Hold still: auto-snapping…" : `Ready · ${status?.frameTimeMs} ms`) : `Aligned · ${status?.frameTimeMs} ms`) : "Searching for the 4 corner squares…"}
+          {aligned ? (g.ok ? (autoSnap ? "Hold still: auto-snapping…" : "Ready to scan") : "Almost there: check the tips above") : "Searching for the 4 corner squares…"}
         </span>
-        {quality && <span className="font-mono text-[11px] text-zinc-400" title="mean luminance / clipped pixels">L{Math.round(quality.meanLuma)} · {Math.round(quality.saturatedFraction * 100)}%</span>}
         {torch.supported && <button type="button" aria-pressed={torch.on} className={`${btn} border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700`} onClick={toggleTorch}>{torch.on ? "Torch off" : "Torch"}</button>}
       </div>
     </div>
