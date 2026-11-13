@@ -1,12 +1,16 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata, Viewport } from "next";
+import { JetBrains_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import AboutModal from "@/components/brand/AboutModal";
 import TutorialModal from "@/components/brand/TutorialModal";
 import { THEME_INIT_SCRIPT } from "@/components/brand/ThemeToggle";
 import { BRAND } from "@/lib/brand";
-import AppHeader from "@/components/shell/AppHeader";
+import AppShell from "@/components/shell/AppShell";
 import ConvexClientProvider from "./ConvexClientProvider";
+
+const sans = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-jakarta", display: "swap" });
+const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains", display: "swap" });
 
 const description = `${BRAND.expansion}. ${BRAND.tagline}`;
 export const metadata: Metadata = {
@@ -27,9 +31,9 @@ export const viewport: Viewport = {
 const clerkKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const app = <ConvexClientProvider><AppHeader />{children}</ConvexClientProvider>;
+  const app = <ConvexClientProvider><AppShell>{children}</AppShell></ConvexClientProvider>;
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
       <head><script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} /></head>
       <body className="antialiased">
         {/* Clerk only when configured, so local-first and dev-auth builds need no Clerk keys */}

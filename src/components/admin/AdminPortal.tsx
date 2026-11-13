@@ -5,6 +5,8 @@
  * courtesy, not the security boundary.
  */
 import { useMutation, useQuery } from "convex/react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
@@ -14,9 +16,11 @@ import { AUDIT_KINDS, AUDIT_LABEL, type AuditKind } from "@/lib/admin/audit";
 import { CLASE_FORMULA, type GradingFormula, labGrade, lectureGrade, termGrade, validateFormula } from "@/lib/admin/formula";
 import { isAdmin, type Role } from "@/lib/roles/policy";
 import { parseEmailList } from "@/lib/access-requests";
-import { adminOverview } from "@/lib/admin/overview";
+import { recentActivity } from "@/lib/admin/activity";
+import { adminModules, adminOverview } from "@/lib/admin/overview";
+import { type AdminView, parseAdminView } from "@/lib/shell-nav";
 
-type Tab = "faculty" | "access" | "syllabi" | "audit" | "policy";
+type Tab = AdminView;
 const input = "v-input";
 const btn = "v-btn";
 const errText = (e: unknown) => (e as { data?: { message?: string } })?.data?.message ?? (e as Error)?.message ?? String(e);
@@ -45,39 +49,97 @@ export default function AdminPortal() {
 }
 
 function Portal({ orgId, myUserId, role }: { orgId: Id<"orgs">; myUserId: Id<"users">; role: Role }) {
-  const [tab, setTab] = useState<Tab>("faculty");
+  // the section lives in the URL (?view=) so the left rail's Administration links and this tab bar stay in sync
+  const router = useRouter();
+  const tab = parseAdminView(useSearchParams().get("view"));
+  const setTab = (t: Tab) => router.replace(`/admin?view=${t}`, { scroll: false });
   const pending = useQuery(api.admin.pendingCount, { orgId });
-  const faculty = useQuery(api.admin.listFaculty, { orgId });
-  const syllabi = useQuery(api.syllabi.listByOrg, { orgId });
-  const exams = useQuery(api.exams.listByOrg, { orgId });
-  const tiles = adminOverview({ faculty, pending, syllabi, exams });
-  const tabs: [Tab, string][] = [["faculty", "Faculty"], ["access", "Access"], ["syllabi", "Syllabi"], ["audit", "Audit Trail"], ["policy", "Policy & Grading"]];
+  const tabs: [Tab, string][] = [["overview", "Overview"], ["faculty", "Faculty"], ["access", "Access"], ["syllabi", "Syllabi"], ["audit", "Audit Trail"], ["policy", "Policy & Grading"]];
   return (
-    <div className="flex flex-col">
-      <dl className="mx-auto grid w-full max-w-6xl grid-cols-2 gap-2 px-4 pt-4 sm:grid-cols-4" data-testid="admin-overview">
-        {tiles.map((t) => (
-          <div key={t.id} className={`v-panel px-3 py-2 ${t.warn ? "!border-gold bg-gold-tint" : ""}`} data-testid={`overview-${t.id}`}>
-            <dt className="text-xs font-medium text-zinc-500">{t.label}</dt>
-            <dd className="text-xl font-bold tabular-nums">{t.value ?? "–"}</dd>
-          </div>
-        ))}
-      </dl>
-      <div role="toolbar" aria-label="Admin sections" data-testid="page-toolbar" className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 sm:p-6">
+      <header className="flex flex-wrap items-start gap-4">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-2xl font-bold">Administration</h1>
+          <p className="mt-2 text-sm text-zinc-500">Faculty access, syllabi, policy and the audit trail for the whole school.</p>
+        </div>
+        <span className="v-badge" data-testid="admin-role">Signed in as {role}</span>
+      </header>
+      <div role="toolbar" aria-label="Admin sections" data-testid="page-toolbar">
         <div className="v-tabs max-w-full overflow-x-auto" role="tablist">
           {tabs.map(([t, label]) => (
             <button key={t} role="tab" type="button" aria-selected={tab === t} onClick={() => setTab(t)}
-              className="v-tab inline-flex items-center gap-1.5">{label}{t === "access" && !!pending && <span className="v-badge v-badge-gold !text-[11px]" data-testid="access-pending-badge" title={`${pending} pending request${pending > 1 ? "s" : ""}`}>{pending}</span>}</button>
+              className="v-tab inline-flex items-center gap-2 py-2">{label}{t === "access" && !!pending && <span className="v-badge v-badge-gold !text-[11px]" data-testid="access-pending-badge" title={`${pending} pending request${pending > 1 ? "s" : ""}`}>{pending}</span>}</button>
           ))}
         </div>
-        <span className="ml-auto text-xs text-zinc-500">Signed in as {role}</span>
       </div>
-      <main className="mx-auto w-full max-w-6xl flex-1 p-4">
+      <main className="min-w-0 flex-1">
+        {tab === "overview" && <Overview orgId={orgId} />}
         {tab === "faculty" && <Faculty orgId={orgId} myUserId={myUserId} />}
         {tab === "access" && <Access orgId={orgId} />}
         {tab === "syllabi" && <Syllabi orgId={orgId} />}
         {tab === "audit" && <Audit orgId={orgId} />}
         {tab === "policy" && <Policy orgId={orgId} />}
       </main>
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ overview
+function Overview({ orgId }: { orgId: Id<"orgs"> }) {
+  const faculty = useQuery(api.admin.listFaculty, { orgId });
+  const pending = useQuery(api.admin.pendingCount, { orgId });
+  const syllabi = useQuery(api.syllabi.listByOrg, { orgId });
+  const exams = useQuery(api.exams.listByOrg, { orgId });
+  const audit = useQuery(api.admin.auditTrail, { orgId, limit: 6 });
+  const tiles = adminOverview({ faculty, pending, syllabi, exams });
+  const modules = adminModules({ faculty, pending, syllabi, auditTotal: audit?.total });
+  const feed = recentActivity(audit?.rows);
+  return (
+    <div className="space-y-6" data-testid="admin-overview-view">
+      <dl className="grid grid-cols-2 gap-4 lg:grid-cols-4" data-testid="admin-overview">
+        {tiles.map((t) => (
+          <div key={t.id} className={`v-panel p-4 ${t.warn ? "!border-gold bg-gold-tint" : ""}`} data-testid={`overview-${t.id}`}>
+            <dt className="text-xs font-medium text-zinc-500">{t.label}</dt>
+            <dd className="v-mono mt-2 text-2xl font-bold">{t.value ?? "–"}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="grid gap-6 lg:grid-cols-5">
+        <section aria-labelledby="modules-title" className="min-w-0 space-y-4 lg:col-span-3" data-testid="system-modules">
+          <h2 id="modules-title" className="text-base font-semibold">System Modules</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {modules.map((m) => (
+              <Link key={m.view} href={m.href} data-testid={`module-${m.view}`} className="v-panel group flex flex-col gap-2 p-6 transition hover:border-[var(--brand-soft)]">
+                <span className="flex items-center gap-2">
+                  <span className="text-base font-semibold">{m.label}</span>
+                  {m.count !== null && <span className="v-badge v-badge-brand ml-auto v-mono">{m.count}</span>}
+                </span>
+                <span className="text-sm text-zinc-500">{m.description}</span>
+                <span className="mt-2 text-sm font-medium text-[var(--brand)] group-hover:underline">Open →</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        <section aria-labelledby="activity-title" className="v-panel min-w-0 lg:col-span-2" data-testid="recent-activity">
+          <div className="flex items-center gap-4 border-b border-[var(--border)] p-6">
+            <h2 id="activity-title" className="text-base font-semibold">Recent System Activity</h2>
+            <Link href="/admin?view=audit" className="ml-auto text-sm font-medium text-[var(--brand)] hover:underline">Audit Trail</Link>
+          </div>
+          {feed === null ? <p className="p-6 text-sm text-zinc-500">Loading…</p> : feed.length === 0 ? <p className="p-6 text-sm text-zinc-500" data-testid="activity-empty">No activity yet. Key changes, grade corrections and admin actions will appear here.</p> : (
+            <ul className="divide-y divide-[var(--border)]">
+              {feed.map((a) => (
+                <li key={a.id} className="space-y-1 px-6 py-4 text-sm" data-testid="activity-item">
+                  <p className="flex flex-wrap items-center gap-2"><span className="font-medium">{a.who}</span><span className="v-badge !text-[11px]">{a.kind}</span></p>
+                  <p>{a.what}</p>
+                  <p className="text-xs text-zinc-500">{a.exam ? `${a.exam} · ` : ""}{when(a.at)}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

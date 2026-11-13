@@ -123,7 +123,7 @@ export default function ActiveExamBar({ fill = false }: { fill?: boolean }) {
                 </li>
               ))}
             </ul>
-            {!local && !(exams?.length) && <p className="px-2 py-3 text-xs text-zinc-500">No exam yet. Open <b>1 · Design</b>, name your exam and configure the sheet; it follows you to Scan and Grade.</p>}
+            {!local && !(exams?.length) && <p className="px-2 py-3 text-xs text-zinc-500">No exam yet. Open <b>Design Exam</b>, name your exam and configure the sheet; it follows you to Scan and Grade.</p>}
             {err && local && active.kind === "draft" && <button type="button" className="w-full rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700" onClick={() => { const p = OMRTemplateSchema.safeParse(local); if (p.success) void saveDraft(p.data); }}>Retry saving to workspace</button>}
           </div>
         )}

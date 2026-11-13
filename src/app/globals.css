@@ -11,7 +11,7 @@
  */
 :root {
   color-scheme: light;
-  --bg: #f9f9fb;
+  --bg: #f7f8fa;
   --surface: #ffffff;
   --border: #e4e4e9;
   --fg: #14151a;
@@ -24,6 +24,16 @@
   --gold-tint: #fef9ec;
   --brand-soft: #f3c0c2;      /* indigo-200: borders of tinted brand chips */
   --brand-text-on-tint: #731418;
+  /* solid burgundy for white-on-colour surfaces: the same in both themes so white text keeps its contrast */
+  --brand-solid: #8e1b20;
+  --brand-solid-hover: #731418;
+  /* persistent left navigation rail (institutional burgundy) */
+  --rail: #6b0f1a;
+  --rail-fg: #f7e9ea;
+  --rail-muted: rgba(247, 233, 234, 0.72);
+  --rail-active: rgba(255, 255, 255, 0.14);
+  --rail-hover: rgba(255, 255, 255, 0.08);
+  --rail-border: rgba(255, 255, 255, 0.14);
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -40,6 +50,8 @@
   --gold-tint: rgba(240, 180, 41, 0.14);
   --brand-soft: rgba(224, 62, 69, 0.4);
   --brand-text-on-tint: #f5a3a7;
+  --rail: #2b0a0c;
+  --rail-border: rgba(255, 255, 255, 0.1);
 }
 /* no-JS fallback: follow the OS */
 @media (prefers-color-scheme: dark) {
@@ -48,14 +60,16 @@
     --bg: #0d0e12; --surface: #16181f; --border: #262934; --fg: #f4f5f7; --muted: #9ba1b0;
     --brand: #e03e45; --brand-hover: #ef535a; --brand-tint: rgba(224, 62, 69, 0.14);
     --gold: #f0b429; --gold-hover: #f5c451; --gold-tint: rgba(240, 180, 41, 0.14);
+    --rail: #2b0a0c; --rail-border: rgba(255, 255, 255, 0.1);
   }
 }
 
 @theme inline {
   --color-background: var(--bg);
   --color-foreground: var(--fg);
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Plus Jakarta Sans (headings + body) and JetBrains Mono (IDs, scores, metadata) are loaded in layout.tsx */
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 @theme {
@@ -90,6 +104,9 @@
   --color-gold-tint: var(--gold-tint);
 }
 
+@layer base {
+  h1, h2, h3 { letter-spacing: -0.025em; }
+}
 html { background: var(--bg); }
 body {
   background: var(--bg);
@@ -99,8 +116,11 @@ body {
 ::selection { background: var(--gold-tint); color: var(--fg); }
 :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
+/* IDs, scores and metadata */
+.v-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
 /*
- * Shared VERITAS component styles (used by Workspace, AppNav and the Admin portal). They sit in
+ * Shared VERITAS component styles (used across the app shell and pages). They sit in
  * @layer components so any Tailwind utility on the element (w-64, px-2, ...) still overrides them.
  */
 @layer components {

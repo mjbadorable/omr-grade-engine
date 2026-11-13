@@ -62,6 +62,7 @@ async function tx<T>(store: string, mode: IDBTransactionMode, run: (s: IDBObject
 
 // ---- scans
 export const putScan = (s: StoredScan) => tx("scans", "readwrite", (st) => st.put(s)).then(() => undefined);
+export const countScans = () => tx<number>("scans", "readonly", (st) => st.count());
 export const deleteScan = (sheetId: string) => tx("scans", "readwrite", (st) => st.delete(sheetId)).then(() => undefined);
 export const getScan = (sheetId: string) => tx<StoredScan | undefined>("scans", "readonly", (st) => st.get(sheetId));
 export const listScans = (layoutHash: string) =>

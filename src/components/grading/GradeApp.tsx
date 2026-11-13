@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyHero } from "@/components/brand/Brand";
-import Workspace from "@/components/shell/Workspace";
+import ActiveExamBar from "@/components/shell/ActiveExamBar";
 import { useCloudSession } from "@/components/cloud/CloudSession";
 import { BRAND } from "@/lib/brand";
 import { answerKeyStatus } from "@/lib/grading/status";
@@ -34,6 +35,10 @@ import { identity, localOutbox, makeEngine, recordKey, recordOverride, recordRes
 import type { ConflictResolution } from "@/lib/sync/types";
 import type { DecodedFields } from "@/lib/vision/types";
 import ConflictPanel from "./ConflictPanel";
+import { exceptionsCount, gradeTabs } from "@/lib/grading/grade-tabs";
+import { isAdmin, isRole } from "@/lib/roles/policy";
+import { parseGradeTab } from "@/lib/shell-nav";
+import { ActionMenu, ExamStatusControl, type MenuItem } from "./GradeHeaderParts";
 import Gradebook from "./Gradebook";
 import GradeSummaryStrip from "./GradeSummaryStrip";
 import ItemAnalysisView from "./ItemAnalysisView";
@@ -44,9 +49,6 @@ import RosterPanel from "./RosterPanel";
 import SyncPanel from "./SyncPanel";
 
 type Tab = "key" | "gradebook" | "roster" | "analysis" | "outcomes";
-const btn = "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40";
-const outline = `${btn} border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`;
-
 function download(name: string, data: BlobPart, type: string) {
   const url = URL.createObjectURL(new Blob([data], { type }));
   const a = Object.assign(document.createElement("a"), { href: url, download: name });
@@ -68,7 +70,10 @@ export default function GradeApp() {
   const [localResolutions, setResolutions] = useState<ConflictResolution[]>([]);
   const [localRoster, setRoster] = useState<Roster | null>(null);
   const [cloudDetail, setCloudDetail] = useState<Map<string, StoredScan>>(new Map());
-  const [tab, setTab] = useState<Tab>("key");
+  // the view lives in the URL (?tab=) so the rail's Reports item and these tabs stay in sync; Results is the default
+  const router = useRouter();
+  const tab: Tab = parseGradeTab(useSearchParams().get("tab")) ?? "gradebook";
+  const setTab = (t: Tab) => router.replace(`/grade?tab=${t}`, { scroll: false });
   const [openId, setOpenId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -354,19 +359,23 @@ export default function GradeApp() {
 
   if (!template || !key) {
     return (
-      <Workspace controlsLabel="Gradebook" defaultOpen
-        body={
-          <div className="space-y-3 text-sm text-zinc-500">
-            <p>Nothing to grade yet.</p>
-            <label className={`${outline} cursor-pointer`}>Load template JSON<input id="grade-template-file" name="template-file" type="file" accept=".json,application/json" className="sr-only" onChange={(e) => onTemplateFile(e.target.files?.[0])} /></label>
-            {notice && <p className="text-sm text-red-600">{notice}</p>}
+      <div className="mx-auto w-full max-w-7xl space-y-6 p-4 sm:p-6" data-testid="gradebook-empty">
+        <header className="flex flex-wrap items-start gap-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl font-bold">Gradebook</h1>
+            <p className="mt-2 text-sm text-zinc-500">Scores, answer keys and reports for your exams.</p>
           </div>
-        }>
-        <div className="mx-auto max-w-xl p-8 text-center">
-          <EmptyHero title="Nothing to grade yet" className="mb-4">{cloud === null && cloudExamId === null ? "Design a sheet first (it is remembered in this browser), or load its template JSON from the sidebar." : "Loading the selected exam…"}</EmptyHero>
-          <Link href="/designer" className={outline}>Open designer</Link>
+          <ActiveExamBar />
+        </header>
+        <div className="v-panel mx-auto max-w-xl space-y-4 p-8 text-center">
+          <EmptyHero title="Nothing to grade yet" className="mb-4">{cloud === null && cloudExamId === null ? "Design a sheet first (it is remembered in this browser), or load its template JSON below." : "Loading the selected exam…"}</EmptyHero>
+          <div className="flex flex-wrap items-center justify-center gap-4">
+            <Link href="/designer" className="v-btn v-btn-primary min-h-10 px-4">Open designer</Link>
+            <label className="v-btn min-h-10 cursor-pointer px-4">Load template JSON<input id="grade-template-file" name="template-file" type="file" accept=".json,application/json" className="sr-only" onChange={(e) => onTemplateFile(e.target.files?.[0])} /></label>
+          </div>
+          {notice && <p className="text-sm text-red-600">{notice}</p>}
         </div>
-      </Workspace>
+      </div>
     );
   }
 
@@ -376,95 +385,123 @@ export default function GradeApp() {
   const openConflicts = groups.filter((g) => g.kind === "DIVERGENT_ANSWERS" && !g.resolution).length;
 
   const sheetsN = graded?.sheets.length ?? 0;
-  const NAV: { id: Tab; label: string; count: string | null; warn?: boolean; icon: string }[] = [
-    { id: "key", label: "Answer Key", count: `${keyed} / ${key.questions.size} keyed`, icon: "M15 7a4 4 0 1 0-4 4l-7 7v3h3l1-1v-2h2v-2h2l1-1a4 4 0 0 0 2-6z" },
-    { id: "gradebook", label: "Students", count: `${sheetsN}${openConflicts ? ` · ${openConflicts} to review` : ""}`, warn: openConflicts > 0, icon: "M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM4 21c0-4 3.6-7 8-7s8 3 8 7" },
-    { id: "roster", label: "Class Roster", count: roster ? `${recon.summary.absent} absent` : null, icon: "M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" },
-    { id: "analysis", label: "Item Analysis", count: null, icon: "M4 20V4m0 16h16M8 16v-5m4 5V8m4 8v-3" },
-    { id: "outcomes", label: "OBE Outcomes", count: attainment?.belowTarget.length ? `${attainment.belowTarget.length} below target` : null, warn: !!attainment?.belowTarget.length, icon: "M12 3 4 7v5c0 4.4 3.2 7.8 8 9 4.8-1.2 8-4.6 8-9V7zM9 12l2 2 4-4" },
+  const exceptions = exceptionsCount({ openConflicts, hasRoster: !!roster, absent: recon.summary.absent, unregistered: recon.summary.unregistered, unreadable: recon.summary.unreadable });
+  const tabs = gradeTabs({ keyed, total: key.questions.size, sheets: sheetsN, exceptions, belowTarget: attainment?.belowTarget.length ?? 0 });
+  const examName = (cloud?.name ?? template.title) || template.templateId;
+  const examStatus = cloud ? cloudSession?.exams?.find((e) => e._id === cloud.examId)?.status ?? null : null;
+  const reports = tab === "analysis" || tab === "outcomes";
+
+  const exportItems: MenuItem[] = [
+    { label: "Excel (.xlsx)", onClick: exportXlsx, disabled: !sheetsN, testId: "export-xlsx" },
+    { label: "CSV", onClick: () => { if (graded) download(`${key.examId}-v${key.version}-results.csv`, "﻿" + toCsv(gradebookRows(graded.sheets, key)), "text/csv;charset=utf-8"); }, disabled: !sheetsN, testId: "export-csv" },
+    { label: busy ?? "Scorecards PDF", onClick: () => scorecards(), disabled: !sheetsN || !!busy, testId: "export-scorecards" },
   ];
-  const nav = (
-    <ul className="space-y-0.5" role="tablist" aria-label="Grade views" data-testid="grade-nav">
-      {NAV.map((n) => (
-        <li key={n.id}>
-          <button type="button" role="tab" aria-selected={tab === n.id} data-testid={`nav-${n.id}`} onClick={() => setTab(n.id)}
-            className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm ${tab === n.id ? "bg-indigo-50 font-semibold text-indigo-800 shadow-[inset_3px_0_0_var(--gold)] dark:bg-indigo-500/15 dark:text-indigo-200" : "text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"}`}>
-            <svg viewBox="0 0 24 24" className="size-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={n.icon} /></svg>
-            <span className="flex-1">{n.label}</span>
-            {n.count && <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${n.warn ? "bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-200" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"}`}>{n.count}</span>}
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-
-  const sideBody = tab === "key" ? (
-    <ScoringRules answerKey={key} onChange={editKey} keySources={keySources}
-      onExport={() => download(`${key.examId}-key-v${key.version}.json`, JSON.stringify(serializeKey(key), null, 2), "application/json")}
-      onImport={onKeyFile}
-      onReset={() => { if (confirm("Reset the answer key to blank?")) editKey(updateKey(keyFromTemplate(template), { })); }} />
-  ) : (
-    <p className="text-sm text-zinc-500">{{ gradebook: "Scanned papers, scores and flagged sheets. Click a student to review their paper.", roster: "Import your class list to match scanned papers to names and spot absentees.", analysis: "How each question performed: difficulty, discrimination and which wrong answers students chose.", outcomes: "Course outcome attainment for the cohort, rolled up to program outcomes." }[tab] ?? ""}</p>
-  );
-
-  const footer = (
-    <>
-      <p data-testid="key-status" className="rounded-full bg-zinc-100 px-3 py-1.5 text-center text-xs font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300" title="Changing the answer key rescores every paper instantly">
-        {answerKeyStatus({ keyed, total: key.questions.size, papers: sheetsN, saving: !!cloud && cloudSaving })}
-      </p>
-      <button type="button" className={`${btn} w-full justify-center bg-indigo-600 py-2 text-white hover:bg-indigo-700`} disabled={!sheetsN} onClick={exportXlsx} data-testid="export-xlsx">Export Excel (.xlsx)</button>
-      <div className="grid grid-cols-2 gap-2">
-        <button type="button" className={`${outline} justify-center`} disabled={!sheetsN} data-testid="export-csv"
-          onClick={() => graded && download(`${key.examId}-v${key.version}-results.csv`, "﻿" + toCsv(gradebookRows(graded.sheets, key)), "text/csv;charset=utf-8")}>CSV</button>
-        <button type="button" className={`${outline} justify-center`} disabled={!sheetsN || !!busy} onClick={() => scorecards()} data-testid="export-scorecards">{busy ?? "Scorecards PDF"}</button>
-      </div>
-      <button type="button" className="w-full rounded-md px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-zinc-800" onClick={generateDemo} disabled={!!cloud} data-testid="load-demo" title={cloud ? "Demo data is local-only; switch to the sheet on this device to use it" : undefined}>Load Demo Class</button>
-      {!cloud && (stored.length > 0 || demo.length > 0) && (
-        <button type="button" className="w-full rounded-md px-3 py-1 text-xs text-zinc-500 underline" onClick={async () => {
-          if (!confirm(`Remove ${stored.length} scanned and ${demo.length} demo sheets for this exam? Corrections and sync logs are kept.`)) return;
-          await clearScans(template.layoutHash).catch(() => {});
-          setStored([]); setDemo([]);
-        }}>Clear scanned sheets</button>
-      )}
-      {!cloudSession && !!who.endpoint && <SyncPanel pending={pending} teacherId={who.teacherId} endpoint={who.endpoint}
-        onTeacher={(v) => { setTeacherId(v); setWho((w) => ({ ...w, teacherId: identity().teacherId })); }}
-        onEndpoint={(v) => { setSyncEndpoint(v); setWho((w) => ({ ...w, endpoint: v.trim() })); }}
-        onSync={async () => { const e = makeEngine(); if (!e) return null; const r = await e.syncOnce(); refreshPending(); if (r.pulled) load(template); return r; }} />}
-    </>
-  );
+  const moreItems: MenuItem[] = [
+    { label: "Load Demo Class", onClick: generateDemo, testId: "load-demo" },
+    ...(stored.length > 0 || demo.length > 0 ? [{
+      label: "Clear scanned sheets", danger: true,
+      onClick: async () => {
+        if (!confirm(`Remove ${stored.length} scanned and ${demo.length} demo sheets for this exam? Corrections and sync logs are kept.`)) return;
+        await clearScans(template.layoutHash).catch(() => {});
+        setStored([]); setDemo([]);
+      },
+    }] : []),
+  ];
 
   return (
     <>
-      <Workspace nav={nav} body={sideBody} footer={footer} controlsLabel="Scoring & key tools">
-        {notice && <div className="border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-sm text-indigo-900 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-indigo-200">{notice} <button type="button" className="ml-2 underline" onClick={() => setNotice(null)}>dismiss</button></div>}
-        {tab === "key" ? <KeyCanvas answerKey={key} onChange={editKey} stats={stats} /> : (
-          <div className="space-y-4 p-4">
-            {tab === "gradebook" && (graded?.sheets.length ? (
-              <>
-                <GradeSummaryStrip sheets={graded.sheets} />
-                <ConflictPanel groups={groups} sheets={sourceById as Map<string, SyncedSheet>} onKeep={keep} onOpen={setOpenId} />
-                <Gradebook sheets={graded.sheets} onOpen={setOpenId} names={names} />
-              </>
-            ) : <Empty />)}
-            {tab === "roster" && <RosterPanel roster={roster} recon={recon} onImport={importRosterRecord} onOpen={setOpenId} download={(n, d, t) => download(n, d, t)} />}
-            {tab === "analysis" && cloud?.analytics && (
+      <div className="mx-auto w-full max-w-7xl space-y-6 p-4 sm:p-6" data-testid="gradebook">
+        <header className="flex flex-wrap items-start gap-x-6 gap-y-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">{reports ? "Reports" : "Gradebook"}</p>
+            <h1 className="mt-2 truncate text-2xl font-bold" data-testid="exam-title">{examName}</h1>
+            <p data-testid="key-status" className="mt-2 text-sm text-zinc-500" title="Changing the answer key rescores every paper instantly">
+              {answerKeyStatus({ keyed, total: key.questions.size, papers: sheetsN, saving: !!cloud && cloudSaving })}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2" data-testid="grade-actions">
+            <ActiveExamBar />
+            {cloud ? <ExamStatusControl examId={cloud.examId} status={examStatus} canChange={isRole(cloud.role) && isAdmin(cloud.role)} /> : <span className="v-badge" data-testid="exam-status">On this device</span>}
+            {!cloud && <button type="button" className="v-btn min-h-10 px-4" onClick={() => load(template)} title="Re-read the sheets saved on this device" data-testid="refresh-results">Refresh</button>}
+            <ActionMenu label="Export" items={exportItems} primary disabled={!sheetsN} testId="export-menu" />
+            {!cloud && <ActionMenu label="More" items={moreItems} testId="more-menu" />}
+            {!cloudSession && !!who.endpoint && <SyncPanel pending={pending} teacherId={who.teacherId} endpoint={who.endpoint}
+              onTeacher={(v) => { setTeacherId(v); setWho((w) => ({ ...w, teacherId: identity().teacherId })); }}
+              onEndpoint={(v) => { setSyncEndpoint(v); setWho((w) => ({ ...w, endpoint: v.trim() })); }}
+              onSync={async () => { const e = makeEngine(); if (!e) return null; const r = await e.syncOnce(); refreshPending(); if (r.pulled) load(template); return r; }} />}
+          </div>
+        </header>
+
+        {notice && (
+          <div role="status" className="v-panel flex flex-wrap items-center gap-2 bg-[var(--brand-tint)] px-4 py-2 text-sm">
+            <span className="min-w-0 flex-1">{notice}</span>
+            <button type="button" className="underline" onClick={() => setNotice(null)}>dismiss</button>
+          </div>
+        )}
+
+        <div className="v-tabs max-w-full overflow-x-auto" role="tablist" aria-label="Grade views" data-testid="grade-nav">
+          {tabs.map((t) => (
+            <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} data-testid={`nav-${t.id}`} onClick={() => setTab(t.id)} className="v-tab inline-flex items-center gap-2 py-2">
+              {t.label}
+              {t.count && <span className={`v-badge !text-[11px] ${t.warn ? "v-badge-gold" : ""}`}>{t.count}</span>}
+            </button>
+          ))}
+        </div>
+
+        {tab === "gradebook" && (graded?.sheets.length ? (
+          <div className="space-y-6">
+            <GradeSummaryStrip sheets={graded.sheets} />
+            {openConflicts > 0 && (
+              <div role="status" className="v-panel flex flex-wrap items-center gap-4 border-gold bg-gold-tint px-4 py-2 text-sm" data-testid="conflict-notice">
+                <span className="min-w-0 flex-1">{openConflicts} student{openConflicts > 1 ? "s were" : " was"} scanned more than once with different answers.</span>
+                <button type="button" className="v-btn" onClick={() => setTab("roster")}>Review exceptions</button>
+              </div>
+            )}
+            <Gradebook sheets={graded.sheets} onOpen={setOpenId} names={names} />
+          </div>
+        ) : <Empty />)}
+
+        {tab === "key" && (
+          <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="v-panel min-w-0"><KeyCanvas answerKey={key} onChange={editKey} stats={stats} /></div>
+            <aside aria-label="Scoring rules and key tools" className="min-w-0 xl:sticky xl:top-[calc(var(--app-header-h,56px)+24px)] xl:max-h-[calc(100dvh-var(--app-header-h,56px)-48px)] xl:overflow-y-auto">
+              <ScoringRules answerKey={key} onChange={editKey} keySources={keySources}
+                onExport={() => download(`${key.examId}-key-v${key.version}.json`, JSON.stringify(serializeKey(key), null, 2), "application/json")}
+                onImport={onKeyFile}
+                onReset={() => { if (confirm("Reset the answer key to blank?")) editKey(updateKey(keyFromTemplate(template), { })); }} />
+            </aside>
+          </div>
+        )}
+
+        {tab === "roster" && (
+          <div className="space-y-6" data-testid="review-exceptions">
+            <p className="text-sm text-zinc-500">Sheets that need a decision: scans of the same student that disagree, roll numbers that are not on your class list, and students with no sheet.</p>
+            <ConflictPanel groups={groups} sheets={sourceById as Map<string, SyncedSheet>} onKeep={keep} onOpen={setOpenId} />
+            <RosterPanel roster={roster} recon={recon} onImport={importRosterRecord} onOpen={setOpenId} download={(n, d, t) => download(n, d, t)} />
+          </div>
+        )}
+
+        {tab === "analysis" && (
+          <div className="space-y-6">
+            {cloud?.analytics && (
               <p data-testid="server-analytics" className="text-xs text-zinc-500">
                 Server snapshot ({cloud.analytics.status}{cloud.analytics.keyVersion ? `, key v${cloud.analytics.keyVersion}` : ""}): {cloud.analytics.gradedCount} sheets · KR-20 {cloud.analytics.kr20?.toFixed(2) ?? "–"} · {cloud.analytics.openConflicts} open conflicts
               </p>
             )}
-            {tab === "analysis" && (graded && graded.sheets.length >= 2 ? <ItemAnalysisView report={graded.report} outcomes={outcomeByQ} /> : <Empty />)}
-            {tab === "outcomes" && (!hasOutcomes(key) ? (
-              <div className="mx-auto max-w-xl rounded-lg border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700" data-testid="outcomes-empty">
-                <p className="font-medium text-zinc-700 dark:text-zinc-200">No syllabus outcomes on this exam yet</p>
-                <p className="mt-1">Use <b>Auto-Fill from Syllabus</b> in <Link href="/designer" className="text-indigo-600 underline">1 · Design</Link>: course outcomes are mapped to questions automatically, and attainment appears here once sheets are graded.</p>
-              </div>
-            ) : attainment && graded && graded.sheets.length ? (
-              <OutcomesView report={attainment} exporting={exportingObe} onExport={exportAccreditation}
-                subtitle={[syllabus ? `${syllabus.courseCode} ${syllabus.courseTitle}` : "Outcome codes from the answer key", examPeriod ? PERIOD_LABEL[examPeriod] : ""].filter(Boolean).join(" · ")} />
-            ) : <Empty />)}
+            {graded && graded.sheets.length >= 2 ? <ItemAnalysisView report={graded.report} outcomes={outcomeByQ} /> : <Empty />}
           </div>
         )}
-      </Workspace>
+
+        {tab === "outcomes" && (!hasOutcomes(key) ? (
+          <div className="v-panel mx-auto max-w-xl border-dashed p-8 text-center text-sm text-zinc-500" data-testid="outcomes-empty">
+            <p className="font-medium text-zinc-700 dark:text-zinc-200">No syllabus outcomes on this exam yet</p>
+            <p className="mt-2">Use <b>Auto-Fill from Syllabus</b> in <Link href="/designer" className="text-indigo-600 underline">Design Exam</Link>: course outcomes are mapped to questions automatically, and attainment appears here once sheets are graded.</p>
+          </div>
+        ) : attainment && graded && graded.sheets.length ? (
+          <OutcomesView report={attainment} exporting={exportingObe} onExport={exportAccreditation}
+            subtitle={[syllabus ? `${syllabus.courseCode} ${syllabus.courseTitle}` : "Outcome codes from the answer key", examPeriod ? PERIOD_LABEL[examPeriod] : ""].filter(Boolean).join(" · ")} />
+        ) : <Empty />)}
+      </div>
 
       {openSheet && openSource && (
         <ReviewModal sheet={openSheet} scan={openSource.stored ?? cloudDetail.get(openSheet.sheetId) ?? null} rawFields={openSource.raw} patches={patchesBySheet.get(openSheet.sheetId) ?? []}

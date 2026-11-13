@@ -1,7 +1,8 @@
 "use client";
 
 import { EmptyHero } from "@/components/brand/Brand";
-import Workspace from "@/components/shell/Workspace";
+import ActiveExamBar from "@/components/shell/ActiveExamBar";
+import { Icon } from "@/components/shell/Rail";
 import { useCloudSession } from "@/components/cloud/CloudSession";
 import { useQuery } from "convex/react";
 import Link from "next/link";
@@ -155,114 +156,130 @@ export default function ScannerApp() {
   const current = jobs.find((j) => j.id === selected) ?? null;
   const ready = engine.state === "ready" && !!template;
 
+  const [dragging, setDragging] = useState(false);
   const statusPill = (
-    <p className={`rounded-full px-3 py-1.5 text-center text-sm font-medium ${engine.state === "ready" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" : engine.state === "error" ? "bg-red-100 text-red-800" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`} data-testid="scanner-status">
+    <p className={`rounded-lg px-4 py-2 text-center text-sm font-medium ${engine.state === "ready" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" : engine.state === "error" ? "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300" : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"}`} data-testid="scanner-status">
       {engine.state === "ready" ? "Scanner Ready" : engine.state === "error" ? `Scanner unavailable: ${engine.message}` : "Starting scanner…"}
     </p>
   );
   const queue = queueSummary(jobs);
-  const proceed = (cls: string) => queue.canProceed && (
-    <Link href="/grade" data-testid="proceed-to-grade" className={cls}>Proceed to Grade ({queue.scanned} sheet{queue.scanned === 1 ? "" : "s"}) →</Link>
+  const proceed = queue.canProceed ? (
+    <Link href="/grade" data-testid="proceed-to-grade" className="v-btn v-btn-primary min-h-10 px-4">Proceed to Grade ({queue.scanned} sheet{queue.scanned === 1 ? "" : "s"}) →</Link>
+  ) : (
+    <button type="button" disabled data-testid="proceed-to-grade" title="Scan a sheet first, or wait for scanning to finish" className="v-btn v-btn-primary min-h-10 px-4">Proceed to Grade →</button>
   );
-  const toggleRow = "flex w-full items-center justify-between rounded-lg border border-zinc-200 px-3 py-2 text-sm dark:border-zinc-800";
+  const toggleRow = "flex min-h-10 w-full items-center justify-between rounded-lg border border-[var(--border)] px-4 py-2 text-sm";
   const sw = (on: boolean) => <span className={`inline-block h-4 w-8 rounded-full p-0.5 transition ${on ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"}`}><span className={`block size-3 rounded-full bg-white transition ${on ? "translate-x-4" : ""}`} /></span>;
 
   return (
     <>
-      <Workspace
-        controlsLabel="Scan settings"
-        defaultOpen
-        footer={
-          <>
-            {statusPill}
-            {proceed("v-btn w-full border-gold text-[var(--fg)] bg-gold-tint hover:!bg-gold-tint font-semibold")}
-            {mode === "upload" ? (
-              <label className={`v-btn v-btn-primary w-full cursor-pointer py-2.5 ${ready ? "" : "pointer-events-none opacity-40"}`} data-testid="scan-primary">
-                Choose Photos to Scan…
-                <input ref={fileInput} type="file" accept="image/*" multiple className="sr-only" disabled={!ready} onChange={(e) => { onFiles(e.target.files); e.target.value = ""; }} />
-              </label>
-            ) : (
-              <button type="button" disabled={!ready || !canCapture} data-testid="scan-primary" className="v-btn v-btn-primary w-full py-2.5" onClick={() => cameraApi.current?.capture()}>Scan Now</button>
-            )}
-          </>
-        }
-        body={
-          <div className="space-y-4">
-            <div>
-              <h2 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">Capture</h2>
+      <div className="mx-auto w-full max-w-7xl space-y-6 p-4 sm:p-6" data-testid="scanner">
+        <header className="flex flex-wrap items-start gap-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl font-bold">Scan &amp; Upload</h1>
+            <p className="mt-2 text-sm text-zinc-500">Upload photos of completed answer sheets or scan them with the camera.</p>
+          </div>
+          <ActiveExamBar />
+        </header>
+
+        <div className="grid items-start gap-6 lg:grid-cols-2">
+          <section aria-label="Capture" className="v-panel min-w-0 space-y-6 p-6" data-testid="scan-capture">
+            <div className="space-y-2">
               <div className="v-tabs grid grid-cols-2" role="tablist" aria-label="How to scan">
                 {(["upload", "camera"] as const).map((m) => (
-                  <button key={m} role="tab" aria-selected={mode === m} type="button" className="v-tab py-1.5 text-center text-sm" onClick={() => { setModeState(m); if (m === "camera") unlockAudio(); }}>{m === "upload" ? "Upload Photos" : "Camera"}</button>
+                  <button key={m} role="tab" aria-selected={mode === m} type="button" className="v-tab py-2 text-center text-sm" onClick={() => { setModeState(m); if (m === "camera") unlockAudio(); }}>{m === "upload" ? "Upload Files" : "Use Camera"}</button>
                 ))}
               </div>
-              {!template && <p className="mt-2 text-xs text-zinc-500">No exam yet. Design one in <b>1 · Design</b> and it appears here.</p>}
-              {template && <p className="mt-2 text-xs text-zinc-500">{template.questionCount} questions · {template.pages.length} page{template.pages.length === 1 ? "" : "s"}</p>}
+              {!template && <p className="text-xs text-zinc-500">No exam yet. Design one in <b>Design Exam</b> and it appears here.</p>}
+              {template && <p className="text-xs text-zinc-500">{template.questionCount} questions · {template.pages.length} page{template.pages.length === 1 ? "" : "s"}</p>}
             </div>
+
+            {mode === "upload" ? (
+              <label data-testid="scan-primary"
+                onDragOver={(e) => { e.preventDefault(); if (ready) setDragging(true); }} onDragLeave={() => setDragging(false)}
+                onDrop={(e) => { e.preventDefault(); setDragging(false); if (ready) void onFiles(e.dataTransfer.files); }}
+                className={`grid cursor-pointer justify-items-center gap-2 rounded-lg border-2 border-dashed p-8 text-center transition ${dragging ? "border-[var(--brand)] bg-[var(--brand-tint)]" : "border-[var(--border)] hover:border-[var(--brand-soft)]"} ${ready ? "" : "pointer-events-none opacity-40"}`}>
+                <span className="grid size-12 place-items-center rounded-full bg-[var(--brand-tint)] text-[var(--brand)]"><Icon id="scan" /></span>
+                <span className="text-base font-semibold">Drag photos here, or choose files</span>
+                <span className="text-sm text-zinc-500">Photos of completed answer sheets (JPG or PNG)</span>
+                <input id="scan-files" name="scan-files" ref={fileInput} type="file" accept="image/*" multiple className="sr-only" disabled={!ready} onChange={(e) => { void onFiles(e.target.files); e.target.value = ""; }} />
+              </label>
+            ) : (
+              <div className="space-y-4">
+                <CameraPanel client={client.current} enabled={ready} rearmRef={rearm} autoSnap={autoSnap} apiRef={cameraApi} onAligned={setCanCapture} onCapture={(bmp) => runScan(`camera ${new Date().toLocaleTimeString()}`, bmp)} />
+                <button type="button" disabled={!ready || !canCapture} data-testid="scan-primary" className="v-btn v-btn-primary min-h-10 w-full" onClick={() => cameraApi.current?.capture()}>Scan Now</button>
+              </div>
+            )}
+
+            {statusPill}
+
+            <div className="space-y-2">
+              <button type="button" role="switch" aria-checked={autoSnap} data-testid="autosnap-toggle" className={toggleRow} title="Capture and grade automatically when all 4 corners hold steady"
+                onClick={() => { const a = !autoSnap; setAutoSnap(a); writeAutoSnap(a); unlockAudio(); if (a) rearm.current(); }}><span>Auto-Snap <span className="text-xs text-zinc-500">(camera)</span></span>{sw(autoSnap)}</button>
+              <button type="button" role="switch" aria-checked={!muted} onClick={toggleMute} data-testid="mute-toggle" className={toggleRow} title={muted ? "Sounds off" : "Success chime on"}><span>Sound</span>{sw(!muted)}</button>
+            </div>
+
             <details key={jobs.length > 0 ? "after-first-scan" : "first-scan"} open={jobs.length === 0} className="v-panel bg-gold-tint" data-testid="scan-tips">
-              <summary className="cursor-pointer px-3 py-2 text-sm font-semibold">Scanning tips</summary>
-              <ul className="list-disc space-y-1 border-t border-[var(--border)] py-2 pl-7 pr-3 text-xs text-zinc-600 dark:text-zinc-300">
+              <summary className="cursor-pointer px-4 py-2 text-sm font-semibold">Scanning tips</summary>
+              <ul className="list-disc space-y-1 border-t border-[var(--border)] py-4 pl-8 pr-4 text-xs text-zinc-600 dark:text-zinc-300">
                 <li>Lay the sheet flat and fill the frame, with all 4 corner squares visible.</li>
                 <li>Use even light: avoid shadows and glare across the page.</li>
                 <li>Hold the phone steady and square to the paper.</li>
                 <li>Scan every page of a multi-page sheet.</li>
               </ul>
             </details>
-            <div className="space-y-2">
-              <button type="button" role="switch" aria-checked={autoSnap} data-testid="autosnap-toggle" className={toggleRow} title="Capture and grade automatically when all 4 corners hold steady"
-                onClick={() => { const a = !autoSnap; setAutoSnap(a); writeAutoSnap(a); unlockAudio(); if (a) rearm.current(); }}><span>Auto-Snap <span className="text-xs text-zinc-500">(camera)</span></span>{sw(autoSnap)}</button>
-              <button type="button" role="switch" aria-checked={!muted} onClick={toggleMute} data-testid="mute-toggle" className={toggleRow} title={muted ? "Sounds off" : "Success chime on"}><span>Sound</span>{sw(!muted)}</button>
-            </div>
-          <details className="rounded-lg border border-zinc-200 dark:border-zinc-800" data-testid="advanced-scanner">
-            <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Advanced Scanner Settings</summary>
-            <div className="space-y-3 border-t border-zinc-100 p-3 dark:border-zinc-800">
-              <label className={`${btn} cursor-pointer border border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}>
-                Load template JSON
-                <input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => onTemplateFile(e.target.files?.[0])} />
-              </label>
-              {templateError && <p className="text-xs text-red-600">{templateError}</p>}
-          <CalibrationDrawer
-            tuning={tuning} onTuning={updateTuning} diagnostics={diagnostics} onDiagnostics={toggleDiagnostics}
-            calibrationMode={calibrationMode} onCalibrationMode={setCalibrationMode}
-          />
 
-            </div>
-          </details>
-          </div>
-        }
-      >
-        <div className="space-y-4 p-4">
-          {mode === "camera" && <div className="mx-auto max-w-2xl"><CameraPanel client={client.current} enabled={ready} rearmRef={rearm} autoSnap={autoSnap} apiRef={cameraApi} onAligned={setCanCapture} onCapture={(bmp) => runScan(`camera ${new Date().toLocaleTimeString()}`, bmp)} /></div>}
-          {jobs.length > 0 && (
-            <section aria-label="Scan queue" data-testid="scan-queue" className="space-y-2">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h2 className="text-sm font-semibold">Scan queue</h2>
-                <p className="text-xs text-zinc-500" data-testid="queue-summary">
+            <details className="v-panel" data-testid="advanced-scanner">
+              <summary className="cursor-pointer px-4 py-2 text-sm font-medium">Advanced Scanner Settings</summary>
+              <div className="space-y-4 border-t border-[var(--border)] p-4">
+                <label className="v-btn cursor-pointer">
+                  Load template JSON
+                  <input name="template-file" type="file" accept="application/json,.json" className="sr-only" onChange={(e) => onTemplateFile(e.target.files?.[0])} />
+                </label>
+                {templateError && <p className="text-xs text-red-600">{templateError}</p>}
+                <CalibrationDrawer
+                  tuning={tuning} onTuning={updateTuning} diagnostics={diagnostics} onDiagnostics={toggleDiagnostics}
+                  calibrationMode={calibrationMode} onCalibrationMode={setCalibrationMode}
+                />
+              </div>
+            </details>
+          </section>
+
+          <section aria-labelledby="queue-title" className="v-panel flex min-w-0 flex-col" data-testid="scan-queue">
+            <div className="space-y-2 border-b border-[var(--border)] p-6">
+              <div className="flex flex-wrap items-center gap-4">
+                <h2 id="queue-title" className="text-lg font-semibold">Scan Queue</h2>
+                <div className="ml-auto">{proceed}</div>
+              </div>
+              {jobs.length > 0 && (
+                <p className="text-sm text-zinc-500" data-testid="queue-summary">
                   {[queue.queued + queue.scanning && `${queue.queued + queue.scanning} in progress`, queue.done && `${queue.done} done`, queue.needsReview && `${queue.needsReview} need review`, queue.failed && `${queue.failed} couldn't be read`].filter(Boolean).join(" · ") || "Calibration scans only"}
                 </p>
-                <div className="ml-auto">{proceed("v-btn v-btn-primary")}</div>
-              </div>
-              <ul className="v-panel divide-y divide-[var(--border)] overflow-hidden">
+              )}
+            </div>
+            {jobs.length === 0 ? (
+              <div className="p-8"><EmptyHero title="Scan an answer sheet">Upload photos or use the camera: scanned sheets are listed here.</EmptyHero></div>
+            ) : (
+              <ul className="max-h-[60vh] divide-y divide-[var(--border)] overflow-y-auto">
                 {jobs.map((j) => (
                   <li key={j.id}>
-                    <button type="button" onClick={() => setSelected(j.id)} className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${selected === j.id ? "bg-indigo-50 dark:bg-indigo-500/10" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"}`}>
+                    <button type="button" onClick={() => setSelected(j.id)} className={`flex min-h-10 w-full items-center gap-2 px-6 py-2 text-left text-sm ${selected === j.id ? "bg-indigo-50 dark:bg-indigo-500/10" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"}`}>
                       <span className="min-w-0 flex-1 truncate">{j.name}</span>
                       <JobBadge job={j} />
                     </button>
                   </li>
                 ))}
               </ul>
-            </section>
-          )}
-
-        <section className="min-w-0" id="scan-detail">
-          {current ? <JobDetail job={current} template={template} diagnostics={diagnostics} tuning={tuning} onRescan={(j) => j.source && runScan(`${j.name} (rescan)`, j.source, { calibration: true })} /> : (
-            <div className="grid h-full min-h-60 place-items-center rounded-lg border border-dashed border-zinc-300 p-6 dark:border-zinc-700">
-              <EmptyHero title="Scan an answer sheet">Choose photos or open the camera: the scan result and overlay appear here.</EmptyHero>
-            </div>
-          )}
-        </section>
+            )}
+          </section>
         </div>
-      </Workspace>
+
+        {current && (
+          <section className="min-w-0" id="scan-detail" aria-label="Scan result">
+            <JobDetail job={current} template={template} diagnostics={diagnostics} tuning={tuning} onRescan={(j) => j.source && runScan(`${j.name} (rescan)`, j.source, { calibration: true })} />
+          </section>
+        )}
+      </div>
       {session && <CloudKey onKey={(k) => { cloudKey.current = k; }} />}
       {banner !== null && (() => {
         const j = jobs.find((x) => x.id === banner);
@@ -463,7 +480,7 @@ function CameraPanel({ client, enabled, onCapture, rearmRef, autoSnap, apiRef, o
       {camError && <p className="text-xs text-red-600">Camera unavailable: {camError}</p>}
       <div className="flex items-center gap-2">
         <span className={`rounded-full px-2 py-0.5 text-xs ${aligned && g.ok ? "bg-emerald-100 text-emerald-700" : aligned ? "bg-amber-100 text-amber-800" : "bg-zinc-100 text-zinc-600"}`}>
-          {aligned ? (g.ok ? (autoSnap ? "Hold still: auto-snapping…" : "Ready to scan") : "Almost there: check the tips above") : "Searching for the 4 corner squares…"}
+          {aligned ? (g.ok ? (autoSnap ? "Hold still: auto-snapping…" : "Ready to scan") : "Almost there: check the scanning tips") : "Searching for the 4 corner squares…"}
         </span>
         {torch.supported && <button type="button" aria-pressed={torch.on} className={`${btn} border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700`} onClick={toggleTorch}>{torch.on ? "Torch off" : "Torch"}</button>}
       </div>

@@ -133,7 +133,7 @@ export default function TutorialModal() {
 
         <div className="flex flex-col gap-3 border-t border-zinc-200 pt-3 sm:flex-row sm:items-center dark:border-zinc-800">
           <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-            <input type="checkbox" className="size-4 accent-indigo-600" checked={!auto} onChange={(e) => { setAuto(!e.target.checked); writeAuto(!e.target.checked); }} />
+            <input id="tutorial-auto-off" name="tutorial-auto-off" type="checkbox" className="size-4 accent-indigo-600" checked={!auto} onChange={(e) => { setAuto(!e.target.checked); writeAuto(!e.target.checked); }} />
             Don’t show automatically on new pages
           </label>
           <div className="flex items-center gap-2 sm:ml-auto">

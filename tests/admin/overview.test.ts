@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { adminOverview } from "@/lib/admin/overview";
+import { adminModules, adminOverview } from "@/lib/admin/overview";
 
 const values = (i: Parameters<typeof adminOverview>[0]) => adminOverview(i).map((t) => [t.id, t.value]);
 
 describe("adminOverview", () => {
   it("returns the four tiles in order with plain labels", () => {
     expect(adminOverview({}).map((t) => [t.id, t.label])).toEqual([
-      ["faculty", "Faculty"], ["pending", "Pending Access"], ["syllabi", "Syllabi"], ["exams", "Examinations"],
+      ["faculty", "Faculty Accounts"], ["pending", "Pending Access"], ["syllabi", "Syllabi"], ["exams", "Examinations"],
     ]);
   });
 
@@ -27,5 +27,26 @@ describe("adminOverview", () => {
     expect(adminOverview({ pending: 2 }).find((t) => t.id === "pending")?.warn).toBe(true);
     expect(adminOverview({ pending: 0 }).find((t) => t.id === "pending")?.warn).toBe(false);
     expect(adminOverview({}).find((t) => t.id === "pending")?.warn).toBe(false);
+  });
+});
+
+describe("adminModules", () => {
+  it("lists the five management areas in order, linking to their ?view= pages", () => {
+    expect(adminModules({}).map((m) => [m.view, m.label, m.href])).toEqual([
+      ["faculty", "Faculty Management", "/admin?view=faculty"],
+      ["access", "User Access & Roles", "/admin?view=access"],
+      ["syllabi", "Syllabi Management", "/admin?view=syllabi"],
+      ["audit", "Audit Trail", "/admin?view=audit"],
+      ["policy", "Policy & Grading", "/admin?view=policy"],
+    ]);
+  });
+
+  it("carries the real count for each area, null while loading, and none for Policy", () => {
+    expect(adminModules({}).map((m) => m.count)).toEqual([null, null, null, null, null]);
+    expect(adminModules({ faculty: [{}, {}], pending: 3, syllabi: [{}], auditTotal: 12 }).map((m) => m.count)).toEqual([2, 3, 1, 12, null]);
+  });
+
+  it("describes every area in plain language", () => {
+    for (const m of adminModules({})) expect(m.description.length).toBeGreaterThan(10);
   });
 });
