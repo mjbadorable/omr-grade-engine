@@ -8,6 +8,8 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { mutation, type MutationCtx, query } from "./_generated/server";
 import { fail, requireExam, requireRole } from "./lib/access";
+import { atMost, atMostCount, MAX } from "./lib/limits";
+import { rateLimit } from "./lib/rateLimit";
 import { examPeriod, questionOutcome } from "./validators";
 import type { QuestionOutcome } from "../src/lib/syllabus/tos";
 import { applyOutcomesToKey } from "../src/lib/syllabus/tos";
@@ -30,6 +32,9 @@ export const create = mutation({
   },
   handler: async (ctx, { orgId, name, template, syllabusId, examPeriod: period, questionOutcomes }) => {
     const { user } = await requireRole(ctx, orgId, "teacher");
+    atMost("The exam name", name, MAX.name);
+    atMostCount("question outcomes", questionOutcomes?.length ?? 0, MAX.outcomes);
+    await rateLimit(ctx, user.tokenIdentifier, "exams.create");
     if (syllabusId) await checkSyllabus(ctx, orgId, syllabusId);
     const parsed = OMRTemplateSchema.safeParse(template);
     if (!parsed.success) fail("INVALID_TEMPLATE", parsed.error.issues.slice(0, 3).map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
@@ -112,6 +117,7 @@ export const bindSyllabus = mutation({
   args: { examId: v.id("exams"), syllabusId: v.id("syllabi"), examPeriod, questionOutcomes: v.array(questionOutcome) },
   handler: async (ctx, { examId, syllabusId, examPeriod: period, questionOutcomes }) => {
     const { exam, user } = await requireExam(ctx, examId, "teacher");
+    atMostCount("question outcomes", questionOutcomes.length, MAX.outcomes);
     await checkSyllabus(ctx, exam.orgId, syllabusId);
     const cur = await ctx.db.query("answerKeys").withIndex("by_exam_version", (q) => q.eq("examId", examId).eq("version", exam.currentKeyVersion)).unique();
     if (!cur) fail("NOT_FOUND", "Answer key not found.");

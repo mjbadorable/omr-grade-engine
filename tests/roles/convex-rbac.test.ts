@@ -5,6 +5,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { api } from "../../convex/_generated/api";
 import schema from "../../convex/schema";
+import { createOrg } from "../helpers/org";
 import { buildSampleExam } from "@/lib/samples/sample-kit";
 import { parseSyllabusText } from "@/lib/syllabus/parse-syllabus";
 import { assignOutcomes, generateTos } from "@/lib/syllabus/tos";
@@ -20,7 +21,7 @@ async function setup() {
   const as = (id: string, name: string) => t.withIdentity({ subject: id, name, email: `${id}@usa.edu.ph`, emailVerified: true });
   const owner = as("dean", "Dean"), admin = as("staff", "EdTech Staff"), teacher = as("ana", "Ana"), viewer = as("vic", "Vic"), outsider = as("zed", "Zed");
   for (const u of [owner, admin, teacher, viewer, outsider]) await u.mutation(api.users.store, {});
-  const orgId = await owner.mutation(api.orgs.create, { name: "USA CICT" });
+  const orgId = await createOrg(t, owner, "USA CICT");
   await owner.mutation(api.orgs.addMember, { orgId, email: "staff@usa.edu.ph", role: "admin" });
   await owner.mutation(api.orgs.addMember, { orgId, email: "ana@usa.edu.ph", role: "teacher" });
   await owner.mutation(api.orgs.addMember, { orgId, email: "vic@usa.edu.ph", role: "viewer" });
@@ -155,7 +156,7 @@ describe("syllabus-bound exams and the audit trail", () => {
     const { t, teacher, orgId } = await setup();
     const other = t.withIdentity({ subject: "ola", name: "Ola", email: "ola@usa.edu.ph", emailVerified: true });
     await other.mutation(api.users.store, {});
-    const org2 = await other.mutation(api.orgs.create, { name: "Other" });
+    const org2 = await createOrg(t, other, "Other");
     const foreign = await other.mutation(api.syllabi.upsert, { orgId: org2, syllabus });
     expect(await code(teacher.mutation(api.exams.create, { orgId, name: "x", template: kit.template, syllabusId: foreign }))).toBe("NOT_FOUND");
   });

@@ -25,9 +25,13 @@ export type Rect = z.infer<typeof RectSchema>;
 export const CellRefSchema = z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]);
 export type CellRef = z.infer<typeof CellRefSchema>;
 
+// Bounds: generous (the biggest sheet the designer can produce is ~5-10x below them) but finite, so
+// oversized or hostile payloads are refused before they are processed or stored.
+const id = z.string().max(120);
+
 export const BubbleSchema = z.object({
-  id: z.string(),                 // stable, human-readable: "p0:q12:B", "p0:roll:d3:7"
-  label: z.string(),              // printed inside the bubble
+  id,                             // stable, human-readable: "p0:q12:B", "p0:roll:d3:7"
+  label: z.string().max(20),              // printed inside the bubble
   center: PointSchema,
   bbox: RectSchema,
   cell: CellRefSchema,            // piecewise-homography cell for curl correction
@@ -35,8 +39,8 @@ export const BubbleSchema = z.object({
 export type Bubble = z.infer<typeof BubbleSchema>;
 
 export const TextSchema = z.object({
-  id: z.string(),
-  text: z.string(),
+  id,
+  text: z.string().max(500),
   fontSizeMm: z.number().positive(),
   weight: z.enum(["normal", "bold"]),
   align: z.enum(["left", "center", "right"]),
@@ -45,54 +49,54 @@ export const TextSchema = z.object({
 export type TextItem = z.infer<typeof TextSchema>;
 
 export const BoxSchema = z.object({
-  id: z.string(),
+  id,
   kind: z.enum(["write-box", "field-line", "frame"]),
   bbox: RectSchema,
 });
 export type BoxItem = z.infer<typeof BoxSchema>;
 
-export const MarkSchema = z.object({ id: z.string(), center: PointSchema, bbox: RectSchema });
+export const MarkSchema = z.object({ id, center: PointSchema, bbox: RectSchema });
 export type Mark = z.infer<typeof MarkSchema>;
 
 // ---------------------------------------------------------------- regions
 export const RollRegionSchema = z.object({
   kind: z.literal("roll"),
-  id: z.string(),
+  id,
   digits: z.number().int().min(1).max(12),
   symbols: z.array(z.string()).length(10),     // "0".."9" in printed order (rollStartDigit applied)
   bbox: RectSchema,
   /** columns[digitIndex][symbolIndex] — most significant digit first. */
-  columns: z.array(z.array(BubbleSchema)),
-  writeBoxes: z.array(BoxSchema),
+  columns: z.array(z.array(BubbleSchema).max(10)).max(12),
+  writeBoxes: z.array(BoxSchema).max(20),
 });
 
 export const SetRegionSchema = z.object({
   kind: z.literal("set"),
-  id: z.string(),
-  options: z.array(z.string()).min(2).max(8),
+  id,
+  options: z.array(z.string().max(20)).min(2).max(8),
   bbox: RectSchema,
-  bubbles: z.array(BubbleSchema),
+  bubbles: z.array(BubbleSchema).max(8),
 });
 
 export const McqQuestionSchema = z.object({
   number: z.number().int().positive(),
-  options: z.array(z.string()).min(2).max(10),
-  bubbles: z.array(BubbleSchema),
+  options: z.array(z.string().max(20)).min(2).max(10),
+  bubbles: z.array(BubbleSchema).max(10),
   bbox: RectSchema,
 });
 
 export const McqRegionSchema = z.object({
   kind: z.literal("mcq"),
-  id: z.string(),
-  sectionId: z.string(),
+  id,
+  sectionId: id,
   bbox: RectSchema,
-  questions: z.array(McqQuestionSchema),
+  questions: z.array(McqQuestionSchema).max(400),
 });
 
 export const NumericRegionSchema = z.object({
   kind: z.literal("numeric"),
-  id: z.string(),
-  sectionId: z.string(),
+  id,
+  sectionId: id,
   questionNumber: z.number().int().positive(),
   digits: z.number().int().min(1).max(10),
   hasSign: z.boolean(),
@@ -101,22 +105,22 @@ export const NumericRegionSchema = z.object({
   /** Optional leading "−" bubble (exactly one). */
   signBubble: BubbleSchema.nullable(),
   /** Optional decimal-point row: one "." bubble per digit column (at most one may be marked). */
-  decimalBubbles: z.array(BubbleSchema),
+  decimalBubbles: z.array(BubbleSchema).max(12),
   /** columns[digitIndex][0..9] */
-  columns: z.array(z.array(BubbleSchema)),
-  writeBoxes: z.array(BoxSchema),
+  columns: z.array(z.array(BubbleSchema).max(10)).max(12),
+  writeBoxes: z.array(BoxSchema).max(20),
 });
 
 export const MatrixRegionSchema = z.object({
   kind: z.literal("matrix"),
-  id: z.string(),
-  sectionId: z.string(),
+  id,
+  sectionId: id,
   questionNumber: z.number().int().positive(),
-  rows: z.array(z.string()).min(1).max(10),
-  cols: z.array(z.string()).min(1).max(10),
+  rows: z.array(z.string().max(40)).min(1).max(10),
+  cols: z.array(z.string().max(40)).min(1).max(10),
   bbox: RectSchema,
   /** cells[rowIndex][colIndex] */
-  cells: z.array(z.array(BubbleSchema)),
+  cells: z.array(z.array(BubbleSchema).max(10)).max(10),
 });
 
 export const RegionSchema = z.discriminatedUnion("kind", [
@@ -152,15 +156,15 @@ export const ReferenceGridSchema = z.object({
   markSizeMm: z.number().positive(),
   bubbleRowsPerCell: z.number().int().positive(),
   rowPitchMm: z.number().positive(),
-  rowYs: z.array(mm).min(2),
-  columnXs: z.array(mm).min(2),
+  rowYs: z.array(mm).min(2).max(500),
+  columnXs: z.array(mm).min(2).max(100),
   /** marks[row][col]; corner entries reference the fiducials (same centre). */
-  marks: z.array(z.array(MarkSchema.extend({ isFiducial: z.boolean() }))),
+  marks: z.array(z.array(MarkSchema.extend({ isFiducial: z.boolean() })).max(100)).max(500),
   minDetectRatio: z.number().min(0).max(1),
 });
 
 export const QrSchema = z.object({
-  payload: z.string(),
+  payload: z.string().max(2_000),
   errorCorrection: z.enum(["L", "M", "Q", "H"]),
   modules: z.number().int().positive(),   // modules per side (without quiet zone)
   moduleSizeMm: z.number().positive(),
@@ -168,7 +172,7 @@ export const QrSchema = z.object({
   /** Symbol area incl. quiet zone. */
   bbox: RectSchema,
   /** Row-major dark-module bitmap, '1' = dark, rows joined by '/'. Lets the renderers stay dependency-free. */
-  matrix: z.string(),
+  matrix: z.string().max(100_000),
 });
 
 export const PageSchema = z.object({
@@ -176,9 +180,9 @@ export const PageSchema = z.object({
   fiducials: FiducialsSchema,
   referenceGrid: ReferenceGridSchema,
   qr: QrSchema,
-  texts: z.array(TextSchema),
-  boxes: z.array(BoxSchema),
-  regions: z.array(RegionSchema),
+  texts: z.array(TextSchema).max(500),
+  boxes: z.array(BoxSchema).max(500),
+  regions: z.array(RegionSchema).max(200),
 });
 export type OMRPage = z.infer<typeof PageSchema>;
 
@@ -194,7 +198,7 @@ export const OMRTemplateSchema = z.object({
   version: z.number().int().positive(),
   /** 16 hex chars: first 64 bits of SHA-256 over canonical geometry (QR payload excluded). */
   layoutHash: z.string().regex(/^[0-9a-f]{16}$/),
-  title: z.string(),
+  title: z.string().max(200),
   units: z.literal("mm"),
   paper: z.object({
     size: z.enum(["A4", "LETTER"]),
@@ -215,8 +219,8 @@ export const OMRTemplateSchema = z.object({
     innerSampleRatio: z.number().gt(0).lte(1),
   }),
   rollStartDigit: z.union([z.literal(0), z.literal(1)]),
-  questionCount: z.number().int().nonnegative(),
-  pages: z.array(PageSchema).min(1),
+  questionCount: z.number().int().nonnegative().max(2_000),
+  pages: z.array(PageSchema).min(1).max(60),
 });
 export type OMRTemplate = z.infer<typeof OMRTemplateSchema>;
 

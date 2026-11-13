@@ -5,6 +5,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { api } from "../../convex/_generated/api";
 import schema from "../../convex/schema";
+import { createOrg } from "../helpers/org";
 import { buildSampleExam } from "@/lib/samples/sample-kit";
 import type { DecodedFields } from "@/lib/vision/types";
 
@@ -18,7 +19,7 @@ async function setup() {
   const t = convexTest(schema, modules);
   const teacher = t.withIdentity({ subject: "t1", name: "T1", email: "t1@usa.edu.ph", emailVerified: true });
   await teacher.mutation(api.users.store, {});
-  const orgId = await teacher.mutation(api.orgs.create, { name: "USA" });
+  const orgId = await createOrg(t, teacher, "USA");
   const examId = await teacher.mutation(api.exams.create, { orgId, name: "Quiz", template: kit.template });
   return { t, teacher, orgId, examId };
 }

@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import schema from "../../convex/schema";
+import { createOrg } from "../helpers/org";
 import { answerKeyToBody, bodyToAnswerKey, type AnswerKeyBody } from "@/lib/cloud/convert";
 import { analyzeItems } from "@/lib/grading/item-analysis";
 import { rescoreBatch } from "@/lib/grading/scorer";
@@ -37,7 +38,7 @@ async function setup() {
   const viewer = t.withIdentity({ subject: "v1", name: "Viewer", email: "v1@usa.edu.ph", emailVerified: true });
   const stranger = t.withIdentity({ subject: "x", name: "Stranger", email: "x@usa.edu.ph", emailVerified: true });
   for (const u of [owner, teacher, viewer, stranger]) await u.mutation(api.users.store, {});
-  const orgId = await owner.mutation(api.orgs.create, { name: "St. Example High" });
+  const orgId = await createOrg(t, owner, "St. Example High");
   await owner.mutation(api.orgs.addMember, { orgId, email: "T1@usa.edu.ph", role: "teacher" });
   await owner.mutation(api.orgs.addMember, { orgId, email: "v1@usa.edu.ph", role: "viewer" });
   const examId = await teacher.mutation(api.exams.create, { orgId, name: "Quiz 1", template: kit.template });

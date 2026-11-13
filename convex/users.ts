@@ -1,4 +1,5 @@
 import { mutation, query } from "./_generated/server";
+import { rateLimit } from "./lib/rateLimit";
 import { accessDecision, allowedDomains, bindPreAuthorizations, currentUser, defaultAdminEmails, ensureDefaultAdmin, requireAllowedIdentity } from "./lib/access";
 
 /** Upsert the signed-in user (call once after sign-in). Refuses accounts outside the allowlist. */
@@ -6,6 +7,7 @@ export const store = mutation({
   args: {},
   handler: async (ctx) => {
     const identity = await requireAllowedIdentity(ctx);
+    await rateLimit(ctx, identity.tokenIdentifier, "users.store");
     const existing = await currentUser(ctx);
     const patch = { name: identity.name ?? identity.nickname ?? undefined, email: identity.email?.trim().toLowerCase() ?? undefined };
     let id = existing?._id;

@@ -15,6 +15,7 @@ import { mutation, type QueryCtx, query } from "./_generated/server";
 import { emailAllowedByPolicy } from "../src/lib/admin/formula";
 import { parseEmailList } from "../src/lib/access-requests";
 import { allowedDomains, fail, logAudit, requireRole } from "./lib/access";
+import { atMost, atMostCount, MAX } from "./lib/limits";
 import { gradingFormula, role } from "./validators";
 
 export const listFaculty = query({
@@ -60,6 +61,8 @@ export const setPolicy = mutation({
   args: { orgId: v.id("orgs"), allowedDomains: v.array(v.string()), gradingFormula },
   handler: async (ctx, { orgId, allowedDomains, gradingFormula: f }) => {
     const { user } = await requireRole(ctx, orgId, "admin");
+    atMostCount("domains", allowedDomains.length, MAX.domains);
+    for (const d of allowedDomains) atMost("A domain", d, MAX.domain);
     const errors = validateFormula(f);
     if (errors.length) fail("INVALID_FORMULA", errors.join(" "));
     const domains = normalizeDomains(allowedDomains);
@@ -162,8 +165,10 @@ export const preAuthorize = mutation({
   args: { orgId: v.id("orgs"), emails: v.string(), role: grantRole },
   handler: async (ctx, { orgId, emails, role: grant }) => {
     const { user: actor } = await requireRole(ctx, orgId, "admin");
+    atMost("The email list", emails, MAX.emails);
     const policy = await ctx.db.query("orgPolicies").withIndex("by_org", (q) => q.eq("orgId", orgId)).unique();
     const parsed = parseEmailList(emails, allowedDomains());
+    atMostCount("email addresses", parsed.valid.length + parsed.invalid.length, MAX.emailCount);
     const invalid = [...parsed.invalid, ...parsed.valid.filter((e) => policy && !emailAllowedByPolicy(e, policy.allowedDomains))];
     const bound: string[] = [], queued: string[] = [], unchanged: string[] = [];
     for (const email of parsed.valid.filter((e) => !invalid.includes(e))) {

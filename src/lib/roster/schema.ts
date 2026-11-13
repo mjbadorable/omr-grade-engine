@@ -5,20 +5,20 @@
 import { z } from "zod";
 
 export const StudentSchema = z.object({
-  rollNumber: z.string().min(1),
-  name: z.string().min(1),
-  section: z.string().optional(),
-  email: z.string().email().optional(),
-  phone: z.string().optional(),
-  guardianContact: z.string().optional(),
+  rollNumber: z.string().min(1).max(40),
+  name: z.string().min(1).max(200),
+  section: z.string().max(100).optional(),
+  email: z.string().email().max(254).optional(),
+  phone: z.string().max(50).optional(),
+  guardianContact: z.string().max(200).optional(),
 });
 export type Student = z.infer<typeof StudentSchema>;
 
 export const RosterSchema = z.object({
   schema: z.literal("omr-roster/v1"),
-  name: z.string(),
+  name: z.string().max(200),
   importedAt: z.number().int(),
-  students: z.array(StudentSchema),
+  students: z.array(StudentSchema).max(5_000),
 });
 export type Roster = z.infer<typeof RosterSchema>;
 

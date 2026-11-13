@@ -15,6 +15,9 @@ import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { type MutationCtx, mutation, query } from "./_generated/server";
 import { fail, requireExam } from "./lib/access";
+import { atMost, atMostCount, MAX } from "./lib/limits";
+import { rateLimit } from "./lib/rateLimit";
+import { previewProblem } from "./lib/uploads";
 import { answerKeyBody, compactReadouts, decodedFields, originalState, overriddenOption, overrideTarget } from "./validators";
 
 const MAX_BATCH = 50;
@@ -36,7 +39,8 @@ async function overridePatchesFor(ctx: MutationCtx, scanId: Id<"scans">) {
 export const generateUploadUrl = mutation({
   args: { examId: v.id("exams") },
   handler: async (ctx, { examId }) => {
-    await requireExam(ctx, examId, "teacher");
+    const { user } = await requireExam(ctx, examId, "teacher");
+    await rateLimit(ctx, user.tokenIdentifier, "grading.generateUploadUrl");
     return ctx.storage.generateUploadUrl();
   },
 });
@@ -70,6 +74,9 @@ export const submitScanBatch = mutation({
   },
   handler: async (ctx, { examId, deviceId, scans }): Promise<ScanSubmitResult[]> => {
     const { exam, user } = await requireExam(ctx, examId, "teacher");
+    atMost("The device id", deviceId, MAX.id);
+    for (const s of scans) { atMost("A scan id", s.clientScanId, MAX.id); atMost("The sheet layout", s.layoutHash, MAX.hash); }
+    await rateLimit(ctx, user.tokenIdentifier, "grading.submitScanBatch");
     if (exam.status === "closed") fail("EXAM_CLOSED", "This exam is closed for scanning.");
     if (scans.length > MAX_BATCH) fail("BATCH_TOO_LARGE", `Send at most ${MAX_BATCH} scans per call.`);
     const results: ScanSubmitResult[] = [];
@@ -78,6 +85,15 @@ export const submitScanBatch = mutation({
       const dup = await ctx.db.query("scans").withIndex("by_client_id", (q) => q.eq("examId", examId).eq("clientScanId", s.clientScanId)).unique();
       if (dup) { results.push({ clientScanId: s.clientScanId, status: "already_stored", scanId: dup._id }); continue; }
       if (s.layoutHash !== exam.layoutHash) { results.push({ clientScanId: s.clientScanId, status: "rejected", reason: "TEMPLATE_MISMATCH" }); continue; }
+      if (s.previewStorageId) {
+        // the browser uploads the preview straight to storage, so check what actually landed there
+        const meta = await ctx.db.system.get("_storage", s.previewStorageId);
+        if (previewProblem(meta)) {
+          if (meta) await ctx.storage.delete(s.previewStorageId);
+          results.push({ clientScanId: s.clientScanId, status: "rejected", reason: "INVALID_PREVIEW" });
+          continue;
+        }
+      }
       const key = rollKey(s.fields.rollNumber);
       const scanId = await ctx.db.insert("scans", {
         examId, clientScanId: s.clientScanId, layoutHash: s.layoutHash, pageIndex: s.pageIndex,
@@ -157,6 +173,7 @@ export const updateAnswerKey = mutation({
   args: { examId: v.id("exams"), baseVersion: v.number(), key: v.object(answerKeyBody), clientKeyId: v.optional(v.string()) },
   handler: async (ctx, { examId, baseVersion, key, clientKeyId }) => {
     const { exam, user } = await requireExam(ctx, examId, "teacher");
+    if (clientKeyId) atMost("The key save id", clientKeyId, MAX.id);
     // Offline replay: if this exact queued save already landed (e.g. the response was lost), report it again.
     if (clientKeyId) {
       const done = await ctx.db.query("answerKeys").withIndex("by_exam_client", (q) => q.eq("examId", examId).eq("clientKeyId", clientKeyId)).unique();
@@ -198,6 +215,9 @@ export const addOverrides = mutation({
   },
   handler: async (ctx, { examId, patches }) => {
     const { exam, user } = await requireExam(ctx, examId, "teacher");
+    atMostCount("corrections", patches.length, MAX.patches);
+    for (const p of patches) { atMost("A correction id", p.patchId, MAX.id); atMost("The reason", p.reason, MAX.reason); }
+    await rateLimit(ctx, user.tokenIdentifier, "grading.addOverrides");
     let added = 0;
     for (const p of patches) {
       const scan = await ctx.db.get(p.scanId);
@@ -227,6 +247,8 @@ export const resolveConflict = mutation({
   args: { examId: v.id("exams"), rollKey: v.string(), keepScanId: v.id("scans"), clientId: v.optional(v.string()), timestamp: v.optional(v.number()) },
   handler: async (ctx, { examId, rollKey: key, keepScanId, clientId, timestamp }) => {
     const { exam, user } = await requireExam(ctx, examId, "teacher");
+    atMost("The roll number", key, MAX.id);
+    if (clientId) atMost("The resolution id", clientId, MAX.id);
     if (clientId) {
       const done = await ctx.db.query("conflictResolutions").withIndex("by_exam_client", (q) => q.eq("examId", examId).eq("clientId", clientId)).unique();
       if (done) return done._id;

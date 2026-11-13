@@ -1,43 +1,66 @@
 import type { TutorialCategory } from "./tutorial-state";
 
 export type IconName = "upload" | "sliders" | "download" | "qr" | "camera" | "wand" | "key" | "refresh" | "chart" | "users" | "shield" | "list";
-export interface TutorialStep { icon: IconName; title: string; body: string }
+/**
+ * One guided step. `route` is the page the step lives on (it may carry a query such as `?tab=key`) and
+ * `selectors` are CSS selectors for the real control to spotlight, tried in order; if none is on screen
+ * (hidden on a phone, a different mode, local-first notice) the card is simply centered.
+ */
+export interface TutorialStep { icon: IconName; title: string; body: string; route: string; selectors: string[] }
 export interface TutorialSection { id: TutorialCategory; tab: string; short: string; heading: string; steps: TutorialStep[]; tipTitle: string; tip: string; visit: string }
 
 export const TUTORIAL: TutorialSection[] = [
   {
-    id: "design", tab: "1 · Design", short: "Design", heading: "Sheet Designer & OBE Setup", visit: "/designer",
+    id: "design", tab: "1 · Design", short: "Design", heading: "Design an Exam", visit: "/designer",
     steps: [
-      { icon: "upload", title: "Auto-configure via syllabus (optional)", body: "Drop your USA course syllabus PDF into the top banner. VERITAS extracts the Course Outcomes (CO), Program Outcomes (PO) and exam metadata, and builds the Table of Specifications for you." },
-      { icon: "sliders", title: "Customize layout & identity", body: "Tap a Quick Preset (20, 50 or 100 items) for a print-ready sheet in one click, then fine-tune paper size, roll number digits, exam set codes (A/B/C/D) and question sections (MCQ, True/False, Numeric) in the sidebar." },
-      { icon: "download", title: "Validate & export a print-ready PDF", body: "Check the green “Ready to Print” summary at the top, then click “Download Answer Sheet (PDF)” to print your official answer sheets. Layout and developer options are tucked away under “Advanced”." },
+      { icon: "list", route: "/", selectors: ['[data-testid="quick-actions"]'], title: "Start from your Dashboard",
+        body: "Your Dashboard has four quick actions (Design Exam, Scan Sheets, Grade Exam and Reports) and lists your recent examinations. You can use the navigation menu to move between pages at any time." },
+      { icon: "upload", route: "/designer", selectors: ['[data-testid="designer-steps"]'], title: "Follow the three steps",
+        body: "Design Exam has three steps: Exam Details, Answer Sheet, and Review & Download. In Exam Details, name your exam and, if you like, drop your course syllabus PDF to fill in the outcomes and the Table of Specifications for you." },
+      { icon: "sliders", route: "/designer", selectors: ['[data-testid="step-tab-2"]'], title: "Choose the answer sheet",
+        body: "Open step 2, Answer Sheet. Tap a Quick Preset (20, 50 or 100 items) for a print-ready sheet in one click, then adjust the paper size, student ID digits, exam sets and question sections." },
+      { icon: "download", route: "/designer", selectors: ['[data-testid="design-canvas"]'], title: "Check the preview, then download",
+        body: "The preview shows exactly what will print. When the status says Ready to Print, open step 3, Review & Download, and click Download Answer Sheet (PDF). Layout and developer options are tucked away under Advanced." },
     ],
     tipTitle: "Pro Tip", tip: "Always print at “100% / Actual Size” (never “Fit to Page”) so the corner fiducial markers align cleanly during scanning.",
   },
   {
-    id: "scan", tab: "2 · Scan", short: "Scan", heading: "Mobile Camera & Batch OMR Capture", visit: "/scan",
+    id: "scan", tab: "2 · Scan", short: "Scan", heading: "Scan & Upload", visit: "/scan",
     steps: [
-      { icon: "qr", title: "Load the exam layout", body: "Make sure the active sheet layout matches the printed exam paper. The QR code on each sheet also verifies the layout automatically." },
-      { icon: "camera", title: "Capture with the camera or upload images", body: "Use your phone camera in good light, or upload batches of scanned images. Line up the 4 corner brackets with the black corner squares: they turn green and, with Auto-Snap on, the sheet is captured and scored by itself." },
-      { icon: "wand", title: "Instant perspective warp & bubble read", body: "The on-device OpenCV engine flattens tilted pages, detects filled bubbles, and flags low-confidence or double-marked items. An instant result banner shows the student ID, set and score, with Scan Next Sheet and Inspect Paper." },
+      { icon: "qr", route: "/scan", selectors: ['[aria-label="How to scan"]'], title: "Choose how to scan",
+        body: "Use Upload Files for photos or scans you already have, or Use Camera to scan with your phone or webcam. The layout comes from the exam you designed, and the QR code on each sheet double-checks it." },
+      { icon: "camera", route: "/scan", selectors: ['[data-testid="scan-primary"]'], title: "Add your sheets",
+        body: "In Upload Files, drag photos into the box or choose them. In Use Camera, line up the four corner brackets with the black corner squares, then press Scan Now." },
+      { icon: "wand", route: "/scan", selectors: ['[data-testid="autosnap-toggle"]'], title: "Let Auto-Snap do the work",
+        body: "With Auto-Snap on, the camera scans by itself once all four corners hold steady, and a quick result shows the student ID, set and score. The Scanning tips below help when a sheet will not read." },
+      { icon: "list", route: "/scan", selectors: ['[data-testid="scan-queue"]'], title: "Follow the queue, then grade",
+        body: "Every sheet shows as Waiting, Scanning, Done or Needs review. When your sheets are finished, click Proceed to Grade." },
     ],
     tipTitle: "Pro Tip", tip: "Avoid heavy shadows across the four corner registration marks, and ask students to fill bubbles completely with dark ink or an HB/2B pencil.",
   },
   {
-    id: "grade", tab: "3 · Grade", short: "Grade", heading: "Answer Key, Rescoring & OBE Analytics", visit: "/grade",
+    id: "grade", tab: "3 · Grade", short: "Grade", heading: "Gradebook & Reports", visit: "/grade",
     steps: [
-      { icon: "key", title: "Set the answer key & multi-set mapping", body: "Click the bubbles to set the key for Sets A/B/C/D (mark two for alternate credit, ★ for bonus), or import it. If you used the syllabus drop, each question is already mapped to its Course Outcome (CO)." },
-      { icon: "refresh", title: "Live rescoring & audit", body: "Edit point weights, grant bonus or drop items, and resolve flagged sheets. VERITAS rescores thousands of sheets instantly (5,000 in under two seconds in our benchmark)." },
-      { icon: "chart", title: "Export class records & OBE analytics", body: "Review item difficulty and discrimination, CO attainment percentages, then export Excel (.xlsx) or CSV for your grading sheet, or the accreditation PDF." },
+      { icon: "chart", route: "/grade", selectors: ['[data-testid="grade-nav"]', '[data-testid="gradebook-empty"]'], title: "Find your way around",
+        body: "Results lists every scored sheet. Answer Key sets the correct answers. Review Exceptions handles duplicate scans and class-list problems. Item Analysis and OBE Outcomes are your reports." },
+      { icon: "key", route: "/grade?tab=key", selectors: ['[data-testid="key-canvas"]', '[data-testid="nav-key"]'], title: "Set the answer key",
+        body: "Click the bubbles to set the correct answers for each exam set (mark two for alternate credit), or import a key. The scoring rules and key tools sit beside the key." },
+      { icon: "refresh", route: "/grade?tab=key", selectors: ['[data-testid="key-status"]'], title: "Scores update by themselves",
+        body: "Change a key, a point weight or a bonus and every paper is rescored instantly, with no rescanning. This line shows how many questions are keyed and how many papers are scanned." },
+      { icon: "download", route: "/grade", selectors: ['[data-testid="export-menu"]', '[data-testid="gradebook-empty"]'], title: "Export your records",
+        body: "Use Export for Excel, CSV or student scorecards. Item Analysis shows how each question performed, and OBE Outcomes shows course-outcome attainment and can export the accreditation PDF." },
     ],
-    tipTitle: "Pro Tip", tip: "Found an ambiguous question after scanning? Change its key or mark it as a bonus in the Answer Key panel. Every student’s score updates automatically, with no rescanning.",
+    tipTitle: "Pro Tip", tip: "Found an ambiguous question after scanning? Change its key or mark it as a bonus in the Answer Key tab. Every student’s score updates automatically, with no rescanning.",
   },
   {
-    id: "admin", tab: "Admin", short: "Admin", heading: "Institutional Governance", visit: "/admin",
+    id: "admin", tab: "Admin", short: "Admin", heading: "Administration", visit: "/admin",
     steps: [
-      { icon: "users", title: "Manage faculty roles", body: "Pre-authorize faculty by pasting their @usa.edu.ph emails, or approve pending “Request Faculty Access” requests with one click. Roles: Admin (governance), Teacher (build, scan and grade) or Viewer (read-only). The owner’s role is fixed." },
-      { icon: "shield", title: "Domain & security policies", body: "Set the allowed institutional email domains and the global grading formula. Sign-in is always limited to verified @usa.edu.ph accounts." },
-      { icon: "list", title: "Syllabi repository & audit trail", body: "Browse every uploaded syllabus and search the audit trail of answer-key updates, grade overrides, conflict resolutions and role changes." },
+      { icon: "chart", route: "/admin?view=overview", selectors: ['[data-testid="admin-overview"]'], title: "See the school at a glance",
+        body: "The Overview shows faculty accounts, pending access requests, syllabi and examinations for the whole school." },
+      { icon: "users", route: "/admin?view=overview", selectors: ['[data-testid="system-modules"]'], title: "Open a management area",
+        body: "Faculty Management changes roles. User Access & Roles approves requests or pre-authorizes @usa.edu.ph emails. Syllabi Management, Audit Trail and Policy & Grading (domains and the grading formula) each have their own page." },
+      { icon: "shield", route: "/admin?view=overview", selectors: ['[data-testid="recent-activity"]'], title: "Keep an eye on changes",
+        body: "Recent System Activity lists answer-key updates, grade corrections and admin actions. Open the Audit Trail to search all of them." },
     ],
     tipTitle: "Good to know", tip: "Admin tools are for EdTech staff, supervisors and deans. Teachers who open /admin see a clear “Admins only” message, and the server enforces this too.",
   },

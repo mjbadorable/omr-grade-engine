@@ -5,6 +5,7 @@ import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it } from "vitest";
 import { api } from "../../convex/_generated/api";
 import schema from "../../convex/schema";
+import { createOrg } from "../helpers/org";
 import { checkInstitutionalEmail, emailDomain, parseDomainList } from "@/lib/cloud/allowlist";
 
 const modules = import.meta.glob("../../convex/**/*.ts");
@@ -38,7 +39,7 @@ describe("backend enforcement", () => {
     const t = convexTest(schema, modules);
     const ok = t.withIdentity({ subject: "ok", email: "ana@usa.edu.ph", emailVerified: true, name: "Ana" });
     expect(await code(ok.mutation(api.users.store, {}))).toBe("OK");
-    const orgId = await ok.mutation(api.orgs.create, { name: "USA" });
+    const orgId = await createOrg(t, ok, "USA");
 
     for (const [who, expected] of [
       [t.withIdentity({ subject: "g", email: "someone@gmail.com", emailVerified: true }), "DOMAIN_NOT_ALLOWED"],

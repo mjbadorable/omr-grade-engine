@@ -1,15 +1,22 @@
 "use client";
 /**
- * Category-aware "Tutorial & Guidelines" dialog (design / scan / grade / admin).
- * Opens automatically the first time a route is visited, but only after the institutional
- * acknowledgment; the header "? Guide" button reopens it on the current route's tab.
- * Native <dialog>: inert background, focus trap, Escape and backdrop click close it.
+ * Interactive guided tour: a moving spotlight that walks the user through the real pages. Each step
+ * names a route and the control to highlight; Next / Previous navigate there, wait for the control to
+ * mount, scroll it into view and cut a spotlight around it. If the control is not on screen (a phone
+ * with the menu closed, local-first mode, a different tab) the card is simply centered.
+ *
+ * Auto-opens the first time a route is visited, only after the institutional acknowledgment; the
+ * "Help & Support" rail item and the profile menu reopen it on the current page's starting step.
+ * Non-modal: the page underneath stays usable. Escape closes, arrow keys step.
  */
-import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCloudSession } from "@/components/cloud/CloudSession";
 import { readAck } from "@/lib/acknowledgment";
-import { TUTORIAL, type IconName, sectionFor } from "@/lib/tutorial-content";
-import { ACK_ACCEPTED_EVENT, CATEGORIES, categoryForPath, markSeen, OPEN_GUIDE_EVENT, readAuto, readSeen, shouldAutoOpen, type TutorialCategory, writeAuto } from "@/lib/tutorial-state";
+import { isAdmin } from "@/lib/roles/policy";
+import type { IconName } from "@/lib/tutorial-content";
+import { ACK_ACCEPTED_EVENT, categoryForPath, markSeen, OPEN_GUIDE_EVENT, readAuto, readSeen, shouldAutoOpen, type TutorialCategory, writeAuto } from "@/lib/tutorial-state";
+import { type Box, isCompactViewport, pickTarget, placePopover, samePage, scrollDeltaForDock, spotlightBox, startIndex, tourSteps } from "@/lib/tutorial-tour";
 
 const ICONS: Record<IconName, React.ReactNode> = {
   upload: <path d="M12 16V4m0 0L7 9m5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />,
@@ -27,122 +34,191 @@ const ICONS: Record<IconName, React.ReactNode> = {
 };
 const Icon = ({ name }: { name: IconName }) => <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{ICONS[name]}</svg>;
 
+const CATEGORY_LABEL: Record<TutorialCategory, string> = { design: "Design", scan: "Scan", grade: "Grade", admin: "Admin" };
+const CARD_W = 360;
+const SCRIM = "rgba(13, 14, 18, 0.56)";
+
+const onScreen = (el: HTMLElement) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+const page = () => ({ pathname: window.location.pathname, search: window.location.search });
+const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
+
 export default function TutorialModal() {
   const path = usePathname();
-  const ref = useRef<HTMLDialogElement>(null);
+  const router = useRouter();
+  const session = useCloudSession();
+  const signedIn = !!session?.isAuthenticated && !!session.me;
+  const denied = signedIn && !!session?.access && !session.access.allowed;
+  const admin = signedIn && !denied && isAdmin(session?.workspace.role ?? null);
+
+  const steps = useMemo(() => tourSteps(admin), [admin]);
   const [open, setOpen] = useState(false);
-  const [tab, setTab] = useState<TutorialCategory>("design");
+  const [index, setIndex] = useState(0);
   const [auto, setAuto] = useState(true);
+  const [box, setBox] = useState<Box | null>(null);
+  const [vp, setVp] = useState({ w: 1280, h: 800 });
+  const [cardH, setCardH] = useState(280);
+  const cardRef = useRef<HTMLElement>(null);
+  const nextRef = useRef<HTMLButtonElement>(null);
   const viewed = useRef(new Set<TutorialCategory>());
-  const tabRef = useRef(tab);
-  tabRef.current = tab;
   const pathRef = useRef(path);
   pathRef.current = path;
+  const stepsRef = useRef(steps);
+  stepsRef.current = steps;
+  const openRef = useRef(open);
+  openRef.current = open;
+  const adminRef = useRef(admin);
+  adminRef.current = admin;
 
-  const show = useCallback((cat: TutorialCategory) => { viewed.current.add(cat); setTab(cat); setOpen(true); }, []);
+  const step = steps[Math.min(index, steps.length - 1)];
 
-  // auto-open: on a new route, and right after the acknowledgment is accepted
+  const show = useCallback((category: TutorialCategory | null) => {
+    setIndex(startIndex(stepsRef.current, category, page()));
+    setOpen(true);
+  }, []);
+
+  // auto-open: on a new route, and right after the acknowledgment is accepted (never while a tour is running)
   const maybeAuto = useCallback(() => {
     const category = categoryForPath(pathRef.current);
-    if (shouldAutoOpen({ acked: readAck(), auto: readAuto(), category, seen: readSeen() }) && category) {
-      markSeen([category]);                     // shown once: closing it any way never re-nags
+    if (!category || openRef.current) return;
+    if (category === "admin" && !adminRef.current) return;      // teachers are never sent to an "Admins only" screen
+    if (shouldAutoOpen({ acked: readAck(), auto: readAuto(), category, seen: readSeen() })) {
+      markSeen([category]);                                     // shown once: closing it any way never re-nags
       show(category);
     }
   }, [show]);
-  useEffect(() => { setAuto(readAuto()); maybeAuto(); }, [path, maybeAuto]);
+  useEffect(() => { setAuto(readAuto()); maybeAuto(); }, [path, admin, maybeAuto]);
   useEffect(() => {
     const onAck = () => maybeAuto();
-    const onOpen = (e: Event) => show(((e as CustomEvent<TutorialCategory | undefined>).detail) ?? categoryForPath(pathRef.current) ?? "design");
+    const onOpen = (e: Event) => show(((e as CustomEvent<TutorialCategory | undefined>).detail) ?? categoryForPath(pathRef.current));
     window.addEventListener(ACK_ACCEPTED_EVENT, onAck);
     window.addEventListener(OPEN_GUIDE_EVENT, onOpen);
     return () => { window.removeEventListener(ACK_ACCEPTED_EVENT, onAck); window.removeEventListener(OPEN_GUIDE_EVENT, onOpen); };
   }, [maybeAuto, show]);
 
-  useEffect(() => { viewed.current.add(tab); }, [tab]);
+  const close = useCallback(() => { markSeen([...viewed.current]); setOpen(false); setBox(null); }, []);
+  const go = useCallback((i: number) => setIndex(Math.max(0, Math.min(stepsRef.current.length - 1, i))), []);
+
+  // drive the current step: navigate to its page, find the control, scroll it into view, keep the cutout on it
   useEffect(() => {
-    const d = ref.current;
-    if (!d) return;
-    if (open && !d.open) {
-      d.showModal(); document.body.style.overflow = "hidden";
-      document.getElementById(`tut-tab-${tabRef.current}`)?.focus();      // focus the active tab, not the first
-    }
-    if (!open && d.open) d.close();
-    if (!open) document.body.style.overflow = "";
-    return () => { document.body.style.overflow = ""; };
+    if (!open || !step) return;
+    viewed.current.add(step.category);
+    if (!samePage(page(), step.route)) router.push(step.route);
+    setBox(null);
+    let scrolled = false;
+    let dockTimer = 0;
+    const measure = () => {
+      const el = pickTarget(step.selectors, (s) => document.querySelector<HTMLElement>(s), onScreen);
+      if (!el) { setBox((b) => (b ? null : b)); return; }
+      if (!scrolled) {
+        scrolled = true;
+        const smooth = reducedMotion() ? "auto" : "smooth";
+        el.scrollIntoView({ block: "center", behavior: smooth });
+        if (isCompactViewport(window.innerWidth)) {
+          // phones: the card docks at the bottom, so lift the target clear of it once the scroll settles
+          dockTimer = window.setTimeout(() => {
+            const r = el.getBoundingClientRect();
+            const inset = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-header-h")) || 56;
+            const dy = scrollDeltaForDock({ top: r.top, left: r.left, width: r.width, height: r.height }, window.innerHeight, cardRef.current?.offsetHeight ?? 280, inset);
+            if (dy) window.scrollBy({ top: dy, behavior: smooth });
+          }, reducedMotion() ? 60 : 450);
+        }
+      }
+      const r = el.getBoundingClientRect();
+      setBox((b) => (b && b.top === r.top && b.left === r.left && b.width === r.width && b.height === r.height ? b : { top: r.top, left: r.left, width: r.width, height: r.height }));
+    };
+    measure();
+    // re-resolve the control regularly: it may mount late (after navigation), re-render or move
+    const timer = window.setInterval(measure, 150);
+    window.addEventListener("scroll", measure, true);
+    window.addEventListener("resize", measure);
+    return () => { window.clearInterval(timer); window.clearTimeout(dockTimer); window.removeEventListener("scroll", measure, true); window.removeEventListener("resize", measure); };
+  }, [open, step, router]);
+
+  // viewport size + card height drive placement
+  useEffect(() => {
+    if (!open) return;
+    const size = () => setVp({ w: window.innerWidth, h: window.innerHeight });
+    size();
+    window.addEventListener("resize", size);
+    return () => window.removeEventListener("resize", size);
   }, [open]);
+  useEffect(() => {
+    const h = cardRef.current?.offsetHeight;
+    if (open && h && h !== cardH) setCardH(h);
+  }, [open, step, box, cardH]);
 
-  const close = useCallback(() => { markSeen([...viewed.current]); setOpen(false); }, []);
-  const idx = CATEGORIES.indexOf(tab);
-  const go = (i: number) => setTab(CATEGORIES[(i + CATEGORIES.length) % CATEGORIES.length]);
-  const s = sectionFor(tab);
+  // keyboard: Escape closes, arrows step (never while typing in a field), focus follows the primary button
+  useEffect(() => {
+    if (!open) return;
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); close(); return; }
+      if (isTyping(e.target) || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.key === "ArrowRight") { e.preventDefault(); setIndex((i) => Math.min(stepsRef.current.length - 1, i + 1)); }
+      if (e.key === "ArrowLeft") { e.preventDefault(); setIndex((i) => Math.max(0, i - 1)); }
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, [open, close]);
+  useEffect(() => { if (open) nextRef.current?.focus({ preventScroll: true }); }, [open, step]);
 
-  function onTabKey(e: React.KeyboardEvent) {
-    const k = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-    if (k) { e.preventDefault(); const i = idx + k; go(i); requestAnimationFrame(() => document.getElementById(`tut-tab-${CATEGORIES[(i + 4) % 4]}`)?.focus()); }
-  }
+  if (!open || !step) return null;
+
+  const last = index >= steps.length - 1;
+  const cats = [...new Set(steps.map((s) => s.category))];
+  const place = placePopover(box, vp, { w: CARD_W, h: cardH });
+  const spot = box ? spotlightBox(box) : null;
+  const pos: React.CSSProperties | undefined = place.mode === "anchored" ? { top: place.top, left: place.left } : undefined;
+  const posCls = place.mode === "dock" ? "inset-x-3 bottom-3 max-h-[60dvh] overflow-y-auto" : place.mode === "center" ? "left-1/2 top-1/2 w-[min(22.5rem,calc(100vw-1.5rem))] -translate-x-1/2 -translate-y-1/2" : "w-[22.5rem] transition-[top,left] duration-150 motion-reduce:transition-none";
 
   return (
-    <dialog
-      ref={ref} aria-labelledby="tut-title" data-testid="tutorial-modal"
-      onCancel={(e) => { e.preventDefault(); close(); }}
-      onClick={(e) => { if (e.target === ref.current) close(); }}
-      className="m-auto w-[min(40rem,calc(100vw-1rem))] max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
-    >
-      <div className="h-1.5 bg-gradient-to-r from-indigo-600 via-gold to-indigo-600" />
-      <div className="space-y-4 px-4 pb-5 pt-4 sm:px-7">
+    <div className="pointer-events-none fixed inset-0 z-[60]" data-testid="tutorial-overlay">
+      {spot
+        ? <div aria-hidden data-testid="tour-spotlight" className="absolute rounded-xl transition-[top,left,width,height] duration-150 motion-reduce:transition-none" style={{ top: spot.top, left: spot.left, width: spot.width, height: spot.height, boxShadow: `0 0 0 9999px ${SCRIM}`, outline: "2px solid var(--gold)" }} />
+        : <div aria-hidden className="absolute inset-0" style={{ background: SCRIM }} />}
+
+      <section ref={cardRef} role="dialog" aria-modal="false" aria-labelledby="tour-title" data-testid="tutorial-modal" data-placement={place.mode === "anchored" ? place.placement : place.mode}
+        className={`pointer-events-auto fixed space-y-4 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--fg)] shadow-2xl sm:p-6 ${posCls}`} style={pos}>
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Guide sections">
+          {cats.map((c) => (
+            <button key={c} type="button" data-testid={`tour-cat-${c}`} aria-pressed={c === step.category} onClick={() => go(steps.findIndex((s) => s.category === c))}
+              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors duration-150 motion-reduce:transition-none ${c === step.category ? "border-[var(--brand-solid)] bg-[var(--brand-solid)] text-white" : "border-[var(--border)] text-zinc-600 hover:border-[var(--brand-soft)] dark:text-zinc-300"}`}>
+              {CATEGORY_LABEL[c]}
+            </button>
+          ))}
+          <span className="ml-auto text-xs font-medium text-zinc-500" data-testid="tour-counter">Step {index + 1} of {steps.length}</span>
+        </div>
+
         <div className="flex items-start gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-gold-hover dark:text-gold">VERITAS · Tutorial &amp; Guidelines</p>
-            <h2 id="tut-title" className="mt-0.5 text-lg font-bold tracking-tight sm:text-xl">{s.heading}</h2>
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[var(--brand-tint)] text-[var(--brand)]"><Icon name={step.icon} /></span>
+          <div className="min-w-0">
+            <h2 id="tour-title" className="text-base font-bold">{step.title}</h2>
+            <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">{step.body}</p>
           </div>
-          <button type="button" onClick={close} aria-label="Close guide" className="rounded-md px-2 py-1 text-lg leading-none text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800">×</button>
         </div>
 
-        <div role="tablist" aria-label="Guide category" onKeyDown={onTabKey} className="grid grid-cols-4 gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-900">
-          {TUTORIAL.map((t) => {
-            const on = t.id === tab;
-            return (
-              <button key={t.id} id={`tut-tab-${t.id}`} role="tab" type="button" aria-selected={on} aria-controls="tut-panel" tabIndex={on ? 0 : -1} onClick={() => setTab(t.id)}
-                className={`rounded-lg px-1 py-1.5 text-[11px] font-semibold transition sm:text-sm ${on ? "bg-white text-indigo-700 shadow-sm ring-1 ring-gold/50 dark:bg-zinc-800 dark:text-indigo-300" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"}`}>
-                <span className="sm:hidden">{t.id === "admin" ? "Admin" : t.tab.replace(" · ", "·")}</span><span className="hidden sm:inline">{t.tab}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div id="tut-panel" role="tabpanel" aria-labelledby={`tut-tab-${tab}`} className="space-y-4">
-          <ol className="space-y-3">
-            {s.steps.map((st, i) => (
-              <li key={st.title} className="flex gap-3">
-                <div className="flex flex-col items-center">
-                  <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-indigo-50 text-indigo-600 ring-1 ring-inset ring-indigo-200"><Icon name={st.icon} /></span>
-                  {i < s.steps.length - 1 && <span className="mt-1 w-px flex-1 bg-zinc-200 dark:bg-zinc-800" aria-hidden />}
-                </div>
-                <div className="min-w-0 pb-1">
-                  <p className="text-sm font-semibold"><span className="mr-1.5 inline-grid size-5 place-items-center rounded-full bg-indigo-600 align-middle text-[11px] font-bold text-white">{i + 1}</span>{st.title}</p>
-                  <p className="mt-0.5 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">{st.body}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
+        {step.tip && (
           <aside className="rounded-xl border border-gold/50 border-l-4 border-l-gold bg-gold-tint p-3" data-testid="pro-tip">
-            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-gold-hover dark:text-gold">{s.tipTitle}</p>
-            <p className="mt-1 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">{s.tip}</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-gold-hover dark:text-gold">{step.tipTitle}</p>
+            <p className="mt-1 text-sm leading-relaxed text-zinc-800 dark:text-zinc-200">{step.tip}</p>
           </aside>
-        </div>
+        )}
 
-        <div className="flex flex-col gap-3 border-t border-zinc-200 pt-3 sm:flex-row sm:items-center dark:border-zinc-800">
-          <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-            <input id="tutorial-auto-off" name="tutorial-auto-off" type="checkbox" className="size-4 accent-indigo-600" checked={!auto} onChange={(e) => { setAuto(!e.target.checked); writeAuto(!e.target.checked); }} />
-            Don’t show automatically on new pages
-          </label>
-          <div className="flex items-center gap-2 sm:ml-auto">
-            <button type="button" onClick={() => go(idx - 1)} className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900" aria-label="Previous category">← Previous</button>
-            <button type="button" onClick={() => go(idx + 1)} className="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900" aria-label="Next category">Next →</button>
+        <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+          <input id="tutorial-auto-off" name="tutorial-auto-off" type="checkbox" className="size-4 accent-indigo-600" checked={!auto} onChange={(e) => { setAuto(!e.target.checked); writeAuto(!e.target.checked); }} />
+          Don’t show automatically on new pages
+        </label>
+
+        <div className="flex items-center gap-2 border-t border-[var(--border)] pt-4">
+          {!last && <button type="button" onClick={close} data-testid="tutorial-done" className="v-btn min-h-10 border-transparent bg-transparent px-4 text-zinc-600 dark:text-zinc-400">Skip</button>}
+          <div className="ml-auto flex items-center gap-2">
+            <button type="button" onClick={() => go(index - 1)} disabled={index === 0} aria-label="Previous step" className="v-btn min-h-10 px-4">← Previous</button>
+            {last
+              ? <button ref={nextRef} type="button" onClick={close} data-testid="tutorial-done" className="v-btn v-btn-primary min-h-10 px-4">Finish</button>
+              : <button ref={nextRef} type="button" onClick={() => go(index + 1)} aria-label="Next step" className="v-btn v-btn-primary min-h-10 px-4">Next →</button>}
           </div>
         </div>
-        <button type="button" onClick={close} data-testid="tutorial-done" className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold">Got It, Let’s Work</button>
-      </div>
-    </dialog>
+      </section>
+    </div>
   );
 }

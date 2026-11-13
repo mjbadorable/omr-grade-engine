@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it } from "vitest";
 import { api } from "../../convex/_generated/api";
 import schema from "../../convex/schema";
+import { createOrg } from "../helpers/org";
 import { DEV_AUTH_ISSUER, devIdentityBlocked, isProduction, selectAuthProviders } from "@/lib/cloud/auth-guard";
 import { isDefaultAdmin, parseAdminEmails } from "@/lib/roles/bootstrap";
 
@@ -90,11 +91,11 @@ describe("DEFAULT_ADMIN_EMAILS", () => {
     const as = (id: string) => t.withIdentity({ subject: id, name: id, email: `${id}@usa.edu.ph`, emailVerified: true });
     const owner = as("owner"), staff = as("staff"), late = as("late"), plain = as("plain");
     await owner.mutation(api.users.store, {});
-    const org1 = await owner.mutation(api.orgs.create, { name: "CICT" });
+    const org1 = await createOrg(t, owner, "CICT");
     await staff.mutation(api.users.store, {});                                  // signs in after the school exists
     await plain.mutation(api.users.store, {});
     await late.mutation(api.users.store, {});
-    const org2 = await owner.mutation(api.orgs.create, { name: "CAS" });       // created after they signed in
+    const org2 = await createOrg(t, owner, "CAS");       // created after they signed in
     for (const orgId of [org1, org2]) {
       expect((await staff.query(api.orgs.listMine, {})).find((o) => o._id === orgId)?.role).toBe("admin");
       expect((await late.query(api.orgs.listMine, {})).find((o) => o._id === orgId)?.role).toBe("admin");
@@ -111,7 +112,7 @@ describe("DEFAULT_ADMIN_EMAILS", () => {
     const t = convexTest(schema, modules);
     const owner = t.withIdentity({ subject: "owner", name: "o", email: "owner@usa.edu.ph", emailVerified: true });
     await owner.mutation(api.users.store, {});
-    const orgId = await owner.mutation(api.orgs.create, { name: "X" });
+    const orgId = await createOrg(t, owner, "X");
     await owner.mutation(api.users.store, {});
     expect((await owner.query(api.orgs.listMine, {})).find((o) => o._id === orgId)?.role).toBe("owner");
   });
@@ -121,7 +122,7 @@ describe("DEFAULT_ADMIN_EMAILS", () => {
     const a = t.withIdentity({ subject: "a", email: "a@usa.edu.ph", emailVerified: true });
     const b = t.withIdentity({ subject: "b", email: "b@usa.edu.ph", emailVerified: true });
     await a.mutation(api.users.store, {}); await b.mutation(api.users.store, {});
-    await a.mutation(api.orgs.create, { name: "X" });
+    await createOrg(t, a, "X");
     expect(await b.query(api.orgs.listMine, {})).toEqual([]);
   });
 });

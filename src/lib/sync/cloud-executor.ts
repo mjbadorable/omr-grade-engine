@@ -26,8 +26,8 @@ export const errorCode = (e: unknown): string | undefined => {
   return d && typeof d === "object" && typeof (d as { code?: unknown }).code === "string" ? (d as { code: string }).code : undefined;
 };
 const errorMessage = (e: unknown) => ((e as { data?: { message?: string } })?.data?.message) ?? (e instanceof Error ? e.message : String(e));
-/** sign-in problems resolve themselves; keep the queue and try again */
-const TRANSIENT_CODES = new Set(["UNAUTHENTICATED", "USER_NOT_REGISTERED"]);
+/** sign-in problems resolve themselves, and a rate limit frees up with time: keep the queue and try again */
+const TRANSIENT_CODES = new Set(["UNAUTHENTICATED", "USER_NOT_REGISTERED", "RATE_LIMITED"]);
 const MAX_MERGE_ROUNDS = 4;
 
 export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {

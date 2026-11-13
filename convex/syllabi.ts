@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { SyllabusSchema } from "../src/lib/syllabus/types";
 import { mutation, query } from "./_generated/server";
 import { fail, logAudit, requireRole } from "./lib/access";
+import { rateLimit } from "./lib/rateLimit";
 import { syllabusBody } from "./validators";
 
 function validate(body: unknown) {
@@ -22,6 +23,7 @@ export const upsert = mutation({
   args: { orgId: v.id("orgs"), syllabus: v.object(syllabusBody) },
   handler: async (ctx, { orgId, syllabus }) => {
     const { user } = await requireRole(ctx, orgId, "teacher");
+    await rateLimit(ctx, user.tokenIdentifier, "syllabi.upsert");
     const s = validate(syllabus);
     const existing = await ctx.db.query("syllabi").withIndex("by_org_course", (q) => q.eq("orgId", orgId).eq("courseCode", s.courseCode).eq("term", s.term)).first();
     const now = Date.now();

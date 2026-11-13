@@ -91,6 +91,13 @@ export default defineSchema({
     at: v.number(),
   }).index("by_org", ["orgId", "at"]),
 
+  /** Sliding-window rate limiting (convex/lib/rateLimit.ts). `key` is the verified token identifier. */
+  rateEvents: defineTable({
+    key: v.string(),
+    bucket: v.string(),
+    at: v.number(),
+  }).index("by_key_bucket", ["key", "bucket", "at"]),
+
   rosters: defineTable({
     orgId: v.id("orgs"),
     name: v.string(),

@@ -1,16 +1,25 @@
 /** Schools / institutions and teacher roles. */
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { emailAllowedByPolicy } from "../src/lib/admin/formula";
 import { checkRoleChange } from "../src/lib/roles/policy";
 import { DEFAULT_ORG_NAME } from "../src/lib/institution";
 import { autoJoinRole, bindPreAuthorizations, defaultAdminEmails, ensureDefaultAdmin, fail, logAudit, requireRole, requireUser } from "./lib/access";
+import { atMost, MAX } from "./lib/limits";
+import { rateLimit } from "./lib/rateLimit";
 import { role } from "./validators";
 
-export const create = mutation({
-  args: { name: v.string() },
-  handler: async (ctx, { name }) => {
-    const user = await requireUser(ctx);
+/**
+ * Backend-only: creating a school is not something browsers may do (any signed-in @usa.edu.ph
+ * account, students included, could otherwise spawn schools or squat the default workspace name).
+ * Run it from the Convex dashboard / `npx convex run orgs:create`, or from tests, on behalf of a user.
+ */
+export const create = internalMutation({
+  args: { name: v.string(), createdBy: v.id("users") },
+  handler: async (ctx, { name, createdBy }) => {
+    const user = await ctx.db.get(createdBy);
+    if (!user) fail("NOT_FOUND", "That user does not exist.");
+    atMost("The school name", name, MAX.name);
     const trimmed = name.trim();
     if (!trimmed) fail("INVALID", "School name is required.");
     const orgId = await ctx.db.insert("orgs", { name: trimmed, createdBy: user._id });
@@ -39,6 +48,7 @@ export const addMember = mutation({
   args: { orgId: v.id("orgs"), email: v.string(), role },
   handler: async (ctx, { orgId, email, role: r }) => {
     const { membership, user: actor } = await requireRole(ctx, orgId, "admin");
+    atMost("The email", email, MAX.email);
     if (r === "owner" && membership.role !== "owner") fail("FORBIDDEN", "Only an owner can add another owner.");
     const user = await ctx.db.query("users").withIndex("by_email", (q) => q.eq("email", email.trim().toLowerCase())).first();
     if (!user) fail("NOT_FOUND", "No user with that email has signed in yet.");
@@ -70,6 +80,7 @@ export const ensureDefault = mutation({
   args: {},
   handler: async (ctx) => {
     const user = await requireUser(ctx);
+    await rateLimit(ctx, user.tokenIdentifier, "orgs.ensureDefault");
     let org = await ctx.db.query("orgs").withIndex("by_name", (q) => q.eq("name", DEFAULT_ORG_NAME)).first();
     let created = false;
     if (!org) {
@@ -115,6 +126,7 @@ export const requestAccess = mutation({
   args: {},
   handler: async (ctx) => {
     const user = await requireUser(ctx);
+    await rateLimit(ctx, user.tokenIdentifier, "orgs.requestAccess");
     const org = await ctx.db.query("orgs").withIndex("by_name", (q) => q.eq("name", DEFAULT_ORG_NAME)).first();
     if (!org) fail("NOT_FOUND", "The workspace is not ready yet. Reload and try again.");
     const m = await ctx.db.query("memberships").withIndex("by_org_user", (q) => q.eq("orgId", org._id).eq("userId", user._id)).unique();

@@ -129,6 +129,14 @@ describe("offline → reconnect replay", () => {
     expect((await outbox.drain(exec)).done).toBe(1);
   });
 
+  it("a rate limit is transient: the op stays queued and goes through once the window frees up", async () => {
+    const { outbox, cloud, exec } = setup();
+    await outbox.enqueue("APPLY_OVERRIDE", "e1", { patches: [patch("p1")] });
+    cloud.failNextWith = coded("RATE_LIMITED");
+    expect(await outbox.drain(exec)).toMatchObject({ done: 0, failed: 0, remaining: 1 });
+    expect((await outbox.drain(exec)).done).toBe(1);
+  });
+
   it("a server that never answers times out and counts as transient", async () => {
     const { outbox, cloud, exec } = setup();
     await outbox.enqueue("APPLY_OVERRIDE", "e1", { patches: [patch("p1")] });
