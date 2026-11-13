@@ -1,17 +1,77 @@
 # VERITAS
 
-**Verified Exam Recognition & Instant Test Analytics System** · University of San Agustin
+**Verified Exam Recognition & Instant Test Analytics System** · University of San Agustin (Iloilo City)
 
 > Instant mobile grading backed by Augustinian outcomes intelligence.
 
-(Repository: `omr-grade-engine`.)
+(Repository: `omr-grade-engine` · Product: **VERITAS**.)
 
-Design → scan → grade OMR answer sheets, offline-first. Routes: `/designer`, `/scan`, `/grade`. One JSON template, computed by a pure layout engine, drives the live SVG preview, the client-side vector PDF and (from Sprint 2) the OpenCV scanner.
+**VERITAS** is an offline-first, Outcomes-Based Education (OBE) Optical Mark Recognition (OMR) assessment platform built for university faculty. Teachers can design printable answer sheets (or auto-configure them from a course syllabus PDF), scan filled sheets on-device with OpenCV.js in a Web Worker, and grade thousands of papers instantaneously with item analysis, roster reconciliation, student scorecards, and CO/PO attainment reporting.
 
+---
+
+## Screenshots
+
+| Teacher Dashboard (`/`) | Design Exam (`/designer`) |
+| :---: | :---: |
+| ![VERITAS Dashboard](docs/screenshots/01-dashboard.png) | ![VERITAS Sheet Designer](docs/screenshots/02-designer.png) |
+
+| Scan & Upload (`/scan`) | Gradebook & Analytics (`/grade`) |
+| :---: | :---: |
+| ![VERITAS Scan & Upload](docs/screenshots/03-scan.png) | ![VERITAS Gradebook](docs/screenshots/04-gradebook.png) |
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+| --- | --- |
+| **Frontend** | Next.js 15 (App Router), React 19, TypeScript 5, Tailwind CSS v4 (`Plus Jakarta Sans` & `JetBrains Mono`) |
+| **Edge Computer Vision** | `@techstark/opencv-js` 4.10.0 (Web Worker), `jsqr` (QR identity & orientation) |
+| **PDF & Spreadsheets** | `pdf-lib` (deterministic vector PDFs + student scorecards), `pdfjs-dist` (syllabus PDF parser), `qrcode-generator`, SheetJS `xlsx`, `fflate` |
+| **Backend & Sync** | Convex (queries, mutations, internal analytics jobs, file storage, `rateEvents` rate limiting) + IndexedDB offline outbox |
+| **Auth & Security** | Clerk Google SSO (`@usa.edu.ph` allowlist), server-side `requireUser`/`requireRole`/`requireExam` RBAC, Zod bounded schemas, `next.config.ts` security headers + `CSP-Report-Only` |
+| **Testing** | Vitest (`584` tests across `55` suites), `convex-test`, `@edge-runtime/vm` |
+
+---
+
+## Project Structure
+
+```text
+omr-grade-engine/
+├── convex/                     # Convex backend: schema, auth, RBAC, rate limits, upload validation, analytics
+│   ├── lib/                    # access.ts, limits.ts, rateLimit.ts, uploads.ts
+│   └── ...                     # admin.ts, analytics.ts, exams.ts, grading.ts, orgs.ts, syllabi.ts, users.ts
+├── docs/
+│   ├── screenshots/            # UI screenshots for documentation
+│   ├── OMR-Blueprint.md        # Vision pipeline, DB/sync & architecture blueprint
+│   └── ...
+├── src/
+│   ├── app/                    # Next.js App Router pages (/, /designer, /scan, /grade, /admin) + globals.css
+│   ├── components/             # UI modules: shell (Rail, AppShell), dashboard, designer, scanner, grading, admin, brand, cloud
+│   ├── lib/                    # Pure domain engines: omr/, vision/, grading/, syllabus/, roster/, review/, sync/, admin/, export/
+│   └── workers/                # Web Workers: omr-scanner.worker.ts (OpenCV.js), scorecard.worker.ts
+└── tests/                      # 55 Vitest suites (OMR layout, OpenCV pipeline, grading, syllabus, sync, Convex RBAC & security)
 ```
-settings ──► layout-engine.ts ──► OMRTemplate (mm, fiducial-relative) ──┬─► primitives.ts ─┬─► SVG preview
-                                                                         │                  └─► pdf-generator.ts (pdf-lib)
-                                                                         └─► template-coordinates.json  ─► scanner (Sprint 2)
+
+---
+
+## System Architecture & Process Flow
+
+A single deterministic **Template JSON** (`OMRTemplate` in millimetres, fiducial-relative) drives the live SVG preview, the client-side vector PDF (`pdf-lib`), and the OpenCV Web Worker scanner—preventing coordinate drift.
+
+```mermaid
+flowchart LR
+  S["Syllabus PDF (Optional)"] -->|pdfjs-dist + TOS| D["1. Design Exam (/designer)"]
+  D -->|layout-engine.ts| T["OMRTemplate JSON + layoutHash"]
+  T -->|primitives.ts| SVG["Live SVG Preview"]
+  T -->|pdf-lib| PDF["Printable Answer Sheet PDF + QR"]
+  PDF -->|Print & Fill| P["2. Scan & Upload (/scan)"]
+  P -->|Web Worker: OpenCV.js + jsQR| V["Fiducials -> Curl Warp -> Bubble Read"]
+  V -->|Local IndexedDB / Offline Outbox| G["3. Gradebook & Reports (/grade)"]
+  G -->|scorer.ts + item-analysis.ts| R["Scores, KR-20, Item Quality, OBE CO/PO"]
+  R -->|pdf-lib / SheetJS| E["Excel, CSV, Scorecards & Accreditation PDF"]
+  G <-->|Verified @usa.edu.ph + RBAC| C["Convex Cloud & Admin Console (/admin)"]
 ```
 
 ## Run
@@ -19,7 +79,7 @@ settings ──► layout-engine.ts ──► OMRTemplate (mm, fiducial-relative
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm test           # 145 tests: layout, vision (real OpenCV.js in Node), grading, roster, overrides, sync, scorecards, sample kit, Convex backend
+npm test           # 55 suites, 584 tests: layout, vision (OpenCV.js), grading, syllabus, sync, Convex & security
 npm run build
 ```
 
