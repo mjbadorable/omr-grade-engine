@@ -493,7 +493,7 @@ export default function GradeApp() {
         )}
 
         {tab === "outcomes" && (!hasOutcomes(key) ? (
-          <div className="v-panel mx-auto max-w-xl border-dashed p-8 text-center text-sm text-zinc-500" data-testid="outcomes-empty">
+          <div className="v-panel mx-auto max-w-xl border-dashed border-[var(--border)] p-8 text-center text-sm text-zinc-500" data-testid="outcomes-empty">
             <p className="font-medium text-zinc-700 dark:text-zinc-200">No syllabus outcomes on this exam yet</p>
             <p className="mt-2">Use <b>Auto-Fill from Syllabus</b> in <Link href="/designer" className="text-indigo-600 underline">Design Exam</Link>: course outcomes are mapped to questions automatically, and attainment appears here once sheets are graded.</p>
           </div>

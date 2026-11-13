@@ -29,9 +29,9 @@ export const Icon = ({ id }: { id: NavId | "help" }) => (
   <svg viewBox="0 0 24 24" className="size-5 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={ICON[id]} /></svg>
 );
 
-const row = "flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium leading-6 transition-colors";
+const row = "flex items-center gap-2 rounded-lg border border-transparent px-4 py-2 text-sm font-medium leading-6 transition-colors duration-150 motion-reduce:transition-none";
 const idle = "text-[var(--rail-muted)] hover:bg-[var(--rail-hover)] hover:text-white";
-const on = "bg-[var(--rail-active)] text-white shadow-[inset_4px_0_0_var(--gold)]";
+const on = "v-rail-active text-white";
 
 function PendingBadge({ orgId }: { orgId: Id<"orgs"> }) {
   const n = useQuery(api.admin.pendingCount, { orgId });
@@ -85,10 +85,10 @@ function RailLinksWithSearch(props: { role: Role | null; orgId: Id<"orgs"> | nul
 export default function Rail({ role, orgId, onNavigate }: { role: Role | null; orgId: Id<"orgs"> | null; onNavigate?: () => void }) {
   const path = usePathname();
   return (
-    <nav aria-label="Main" data-testid="rail" className="flex h-full w-60 flex-col bg-[var(--rail)] text-[var(--rail-fg)]">
+    <nav aria-label="Main" data-testid="rail" className="v-rail flex h-full w-60 flex-col bg-[var(--rail)] text-[var(--rail-fg)]">
       <Link href="/" onClick={onNavigate} className="flex items-center gap-2 border-b border-[var(--rail-border)] p-4" aria-label={`${BRAND.name}, Assessment Platform`}>
         {/* the emblem is dark on transparent: a white badge keeps it legible on burgundy */}
-        <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-white/95 p-1"><BrandMark className="size-8" /></span>
+        <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-white/95 p-1 shadow-sm ring-1 ring-white/50"><BrandMark className="size-8" /></span>
         <span className="min-w-0 leading-tight">
           <span className="block text-base font-bold tracking-wide text-white">{BRAND.name}</span>
           <span className="block text-xs text-[var(--rail-muted)]">Assessment Platform</span>

@@ -26,7 +26,7 @@ export function ActionMenu({ label, items, primary = false, disabled = false, te
         {label}<span aria-hidden>▾</span>
       </button>
       {open && (
-        <div role="menu" aria-label={label} className="v-panel absolute right-0 top-full z-30 mt-2 w-56 space-y-1 p-2 shadow-xl">
+        <div role="menu" aria-label={label} className="v-panel absolute right-0 bg-[var(--surface)] top-full z-30 mt-2 w-56 space-y-1 p-2 shadow-xl">
           {items.map((it) => (
             <button key={it.label} type="button" role="menuitem" disabled={it.disabled} title={it.title} data-testid={it.testId}
               onClick={() => { setOpen(false); it.onClick(); }}

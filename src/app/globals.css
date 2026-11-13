@@ -11,7 +11,9 @@
  */
 :root {
   color-scheme: light;
-  --bg: #f7f8fa;
+  --bg: #f4f5f8;
+  /* faint ambient depth behind the frosted cards (applied on <body>) */
+  --canvas-wash: radial-gradient(900px 500px at 15% 0%, rgba(142, 27, 32, 0.05), transparent 60%);
   --surface: #ffffff;
   --border: #e4e4e9;
   --fg: #14151a;
@@ -29,6 +31,7 @@
   --brand-solid-hover: #731418;
   /* persistent left navigation rail (institutional burgundy) */
   --rail: #6b0f1a;
+  --rail-bg: linear-gradient(180deg, #7a141e 0%, #5a0b13 55%, #46080e 100%);
   --rail-fg: #f7e9ea;
   --rail-muted: rgba(247, 233, 234, 0.72);
   --rail-active: rgba(255, 255, 255, 0.14);
@@ -38,6 +41,7 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #0d0e12;
+  --canvas-wash: radial-gradient(900px 500px at 15% 0%, rgba(224, 62, 69, 0.06), transparent 60%);
   --surface: #16181f;
   --border: #262934;
   --fg: #f4f5f7;
@@ -51,6 +55,7 @@
   --brand-soft: rgba(224, 62, 69, 0.4);
   --brand-text-on-tint: #f5a3a7;
   --rail: #2b0a0c;
+  --rail-bg: linear-gradient(180deg, #3a0b10 0%, #26070a 100%);
   --rail-border: rgba(255, 255, 255, 0.1);
 }
 /* no-JS fallback: follow the OS */
@@ -61,6 +66,8 @@
     --brand: #e03e45; --brand-hover: #ef535a; --brand-tint: rgba(224, 62, 69, 0.14);
     --gold: #f0b429; --gold-hover: #f5c451; --gold-tint: rgba(240, 180, 41, 0.14);
     --rail: #2b0a0c; --rail-border: rgba(255, 255, 255, 0.1);
+    --rail-bg: linear-gradient(180deg, #3a0b10 0%, #26070a 100%);
+    --canvas-wash: radial-gradient(900px 500px at 15% 0%, rgba(224, 62, 69, 0.06), transparent 60%);
   }
 }
 
@@ -109,7 +116,9 @@
 }
 html { background: var(--bg); }
 body {
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image: var(--canvas-wash);
+  background-repeat: no-repeat;
   color: var(--fg);
   font-family: var(--font-sans);
 }
@@ -150,7 +159,40 @@ body {
   :root[data-theme="dark"] .v-badge-ok { color: #6ee7b7; }
   .v-badge-warn { background: color-mix(in srgb, #d97706 16%, transparent); color: #b45309; }
   :root[data-theme="dark"] .v-badge-warn { color: #fcd34d; }
-  .v-panel { border: 1px solid var(--border); background: var(--surface); border-radius: 0.5rem; }
+  /* crystal surface: translucent shell, beveled edge, soft elevation. Text, tables and inputs inside stay opaque. */
+  .v-panel {
+    border: 1px solid rgba(255, 255, 255, 0.85); border-radius: 1rem;
+    background: rgba(255, 255, 255, 0.78);
+    -webkit-backdrop-filter: blur(14px) saturate(125%); backdrop-filter: blur(14px) saturate(125%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(20, 21, 26, 0.04), 0 10px 28px -8px rgba(20, 21, 26, 0.09), 0 2px 6px rgba(20, 21, 26, 0.04);
+  }
+  :root[data-theme="dark"] .v-panel {
+    border-color: rgba(255, 255, 255, 0.09); background: rgba(22, 24, 31, 0.82);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 12px 30px -8px rgba(0, 0, 0, 0.45);
+  }
+  /* burgundy rail: vertical depth and a specular right-hand hairline */
+  .v-rail { background-image: var(--rail-bg); box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.12), 4px 0 24px rgba(20, 10, 12, 0.14); }
+  /* active rail item: frosted crystal pill with the gold accent bar */
+  .v-rail-active {
+    background: rgba(255, 255, 255, 0.16); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    border-color: rgba(255, 255, 255, 0.24);
+    box-shadow: inset 4px 0 0 var(--gold), inset 0 1px 0 rgba(255, 255, 255, 0.32), 0 4px 12px rgba(0, 0, 0, 0.18);
+  }
+  /* dashboard quick actions */
+  .v-tile-primary {
+    color: #fff; border: 1px solid rgba(255, 255, 255, 0.12);
+    background: linear-gradient(135deg, #8e1b20 0%, #630e13 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 10px 24px -6px rgba(142, 27, 32, 0.38);
+  }
+  .v-tile-glass {
+    border: 1px solid rgba(142, 27, 32, 0.1); background: rgba(253, 242, 242, 0.72);
+    -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 6px 18px -8px rgba(20, 21, 26, 0.12);
+  }
+  :root[data-theme="dark"] .v-tile-glass {
+    border-color: rgba(255, 255, 255, 0.09); background: rgba(224, 62, 69, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 20px -8px rgba(0, 0, 0, 0.45);
+  }
   .v-table { width: 100%; text-align: left; font-size: 0.875rem; }
   .v-table thead { background: var(--bg); color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
   .v-table tbody tr + tr, .v-table thead + tbody tr { border-top: 1px solid var(--border); }

@@ -63,7 +63,7 @@ function DashboardView({ name, rows, glance, onOpen }: { name: string | null; ro
       <section aria-label="Quick actions" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" data-testid="quick-actions">
         {ACTIONS.map((a) => (
           <Link key={a.id} href={a.href} data-testid={`action-${a.id}`}
-            className={`group flex flex-col gap-4 rounded-lg border p-6 transition ${a.primary ? "border-[var(--brand-solid)] bg-[var(--brand-solid)] text-white hover:bg-[var(--brand-solid-hover)]" : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--brand-soft)]"}`}>
+            className={`group flex flex-col gap-4 rounded-2xl p-6 transition duration-150 hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:hover:translate-y-0 ${a.primary ? "v-tile-primary" : "v-tile-glass"}`}>
             <span className={`grid size-10 place-items-center rounded-lg ${a.primary ? "bg-white/15 text-white" : "bg-[var(--brand-tint)] text-[var(--brand)]"}`}><Icon id={a.id} /></span>
             <span>
               <span className="block text-base font-semibold">{a.label}</span>

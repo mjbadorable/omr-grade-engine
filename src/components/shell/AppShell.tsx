@@ -80,7 +80,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex min-h-dvh" data-testid="app-shell">
       <aside className="sticky top-0 hidden h-dvh shrink-0 lg:block" data-testid="rail-desktop"><Rail role={role} orgId={orgId} /></aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header ref={barRef} data-testid="app-header" className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface)]/95 backdrop-blur">
+        <header ref={barRef} data-testid="app-header" className="sticky top-0 z-40 border-b border-[var(--border)] bg-white/75 backdrop-blur-md dark:bg-zinc-950/75">
           <div className="flex h-14 items-center gap-4 px-4 lg:px-6" data-testid="header-tier-1">
             <button ref={menuBtn} type="button" aria-label="Open navigation" aria-expanded={open} aria-controls="mobile-nav" onClick={() => setOpen(true)} data-testid="rail-toggle"
               className="grid size-10 shrink-0 place-items-center rounded-lg border border-[var(--border)] lg:hidden">
