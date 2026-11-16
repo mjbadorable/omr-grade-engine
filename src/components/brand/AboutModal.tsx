@@ -12,7 +12,7 @@ import { ACK_ACCEPTED_EVENT } from "@/lib/tutorial-state";
 import { BRAND } from "@/lib/brand";
 import { BrandLockup } from "./Brand";
 
-const BODY = "Built for Augustinian educators to make exam checking effortless. Design ZipGrade-style answer sheets, scan papers instantly with your phone camera, and generate Outcomes-Based Education (OBE) item analysis in seconds.";
+const BODY = "Built for Augustinian educators to make exam checking effortless. Design custom printable bubble sheets, scan papers instantly with your phone or webcam, and generate Outcomes-Based Education (OBE) item analysis in seconds.";
 
 /** Small credit crest: gold-ringed circle on a light plate so it reads in light and dark mode. */
 function MiniCrest({ src, alt }: { src: string; alt: string }) {
@@ -92,7 +92,7 @@ export default function AboutModal() {
             <MiniCrest src="/logos/usa-logo.png" alt="University of San Agustin seal" />
             <MiniCrest src="/logos/cict-logo.png" alt="Center for Information and Communications Technology logo" />
           </div>
-          <p className="text-[11px] leading-snug text-zinc-600 dark:text-zinc-400">A project of the <b>Educational Technology Office (EdTech)</b> &amp; <b>Center for Information and Communications Technology (CICT)</b>.</p>
+          <p className="text-[11px] leading-snug text-zinc-600 dark:text-zinc-400">A project of the <b>Educational Technology and E-Learning Support Services Office (EdTech)</b> &amp; <b>Center for Information and Communications Technology (CICT)</b>.</p>
         </div>
 
         <button type="button" autoFocus onClick={locked ? understand : close} data-testid="ack-button"

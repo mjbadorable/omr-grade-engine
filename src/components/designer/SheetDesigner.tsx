@@ -12,6 +12,7 @@ import DebugDrawer, { IssueList } from "./DebugDrawer";
 import QuickPresets from "./QuickPresets";
 import { ExamDetailsFields, SheetSetupFields } from "./SettingsPanel";
 import { designerSteps } from "@/lib/omr/designer-steps";
+import type { Darkness, PerPage } from "@/lib/omr/print-options";
 import ActiveExamBar from "@/components/shell/ActiveExamBar";
 import SyllabusDropzone from "./SyllabusDropzone";
 import SheetPreview, { type PreviewOverlays } from "./SheetPreview";
@@ -36,6 +37,10 @@ export default function SheetDesigner() {
   const [overlays, setOverlays] = useState<PreviewOverlays>({ cells: false, bboxes: false });
   const [drawer, setDrawer] = useState<null | "json" | "issues">(null);
   const [busy, setBusy] = useState(false);
+  // print-time only: never changes the template, so any printout scans against the same layout
+  const [perPage, setPerPage] = useState<PerPage>(1);
+  const [darkness, setDarkness] = useState<Darkness>("standard");
+  const [pngBusy, setPngBusy] = useState(false);
 
   // Stable random template id, assigned after hydration (keeps SSR output deterministic).
   useEffect(() => {
@@ -86,11 +91,25 @@ export default function SheetDesigner() {
     setBusy(true);
     try {
       const { generatePdf } = await import("@/lib/omr/pdf-generator");
-      const bytes = await generatePdf(result.template);
-      download(`${result.template.templateId}-v${result.template.version}.pdf`, bytes as BlobPart, "application/pdf");
+      const bytes = await generatePdf(result.template, { perPage, darkness });
+      download(`${result.template.templateId}-v${result.template.version}${perPage > 1 ? `-${perPage}up` : ""}.pdf`, bytes as BlobPart, "application/pdf");
       window.dispatchEvent(new CustomEvent(SHEET_PRINTED_EVENT, { detail: result.template.layoutHash }));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function exportPng() {
+    if (!result) return;
+    setPngBusy(true);
+    try {
+      const { renderPagePng } = await import("@/lib/omr/png-export");
+      const t = result.template;
+      const blob = await renderPagePng(t, page, { darkness });
+      download(`${t.templateId}-v${t.version}-page${page + 1}.png`, blob, "image/png");
+      window.dispatchEvent(new CustomEvent(SHEET_PRINTED_EVENT, { detail: t.layoutHash }));
+    } finally {
+      setPngBusy(false);
     }
   }
 
@@ -165,9 +184,32 @@ export default function SheetDesigner() {
                     </li>
                   </ul>
                   {errors.length > 0 && <div className="v-panel overflow-hidden"><IssueList issues={errors.slice(0, 5)} /></div>}
+                  <fieldset className="v-panel space-y-3 p-4" data-testid="print-options">
+                    <legend className="px-1 text-sm font-semibold">Print options</legend>
+                    <div>
+                      <p id="perpage-label" className="mb-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">Sheets per page</p>
+                      <div className="v-tabs" role="radiogroup" aria-labelledby="perpage-label">
+                        {([1, 2, 4] as const).map((n) => (
+                          <button key={n} type="button" role="radio" aria-checked={perPage === n} data-testid={`perpage-${n}`} onClick={() => setPerPage(n)} className="v-tab">{n === 1 ? "1 per page" : `${n} per page`}</button>
+                        ))}
+                      </div>
+                      {perPage > 1 && <p className="mt-1 text-xs text-zinc-500">Copies of the same sheet, scaled down evenly. Cut along the dashed guides before handing out. Smaller sheets need a clean print: test one before a full class set.</p>}
+                    </div>
+                    <div>
+                      <p id="darkness-label" className="mb-1 text-xs font-medium text-zinc-600 dark:text-zinc-400">Ink</p>
+                      <div className="v-tabs" role="radiogroup" aria-labelledby="darkness-label">
+                        <button type="button" role="radio" aria-checked={darkness === "standard"} data-testid="darkness-standard" onClick={() => setDarkness("standard")} className="v-tab">Standard</button>
+                        <button type="button" role="radio" aria-checked={darkness === "high"} data-testid="darkness-high" onClick={() => setDarkness("high")} className="v-tab">High contrast (photocopy)</button>
+                      </div>
+                    </div>
+                  </fieldset>
                   <div className="space-y-2">
                     <button type="button" disabled={!canExport || busy} data-testid="download-pdf" className="v-btn v-btn-primary min-h-10 w-full" onClick={exportPdf}>
                       {busy ? "Preparing PDF…" : "Download Answer Sheet (PDF)"}
+                    </button>
+                    <button type="button" disabled={!canExport || pngBusy} data-testid="download-png" className="v-btn min-h-10 w-full"
+                      title="One page as a picture, to place in a Word document or exam booklet" onClick={exportPng}>
+                      {pngBusy ? "Preparing image…" : `Download Page ${page + 1} as Image (PNG)`}
                     </button>
                     <button type="button" disabled={kitBusy} className="v-btn min-h-10 w-full border-transparent bg-transparent text-zinc-600 dark:text-zinc-400"
                       title="A ready-made 20-question exam with answer key, class list and practice scans" onClick={downloadKit}>

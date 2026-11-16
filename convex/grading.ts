@@ -186,6 +186,11 @@ export const updateAnswerKey = mutation({
       const a = Object.keys(current.questions).sort().join(), b = Object.keys(key.questions).sort().join();
       if (a !== b) fail("INVALID_KEY", "The key must contain exactly the exam's questions.");
     }
+    atMostCount("grades in the grading scale", key.gradeBands.length, 30);
+    for (const b of key.gradeBands) {
+      atMost("A grade name", b.label, 20);
+      if (!Number.isFinite(b.minPercent) || b.minPercent < 0 || b.minPercent > 100) fail("INVALID_KEY", "Grade cutoffs must be between 0 and 100.");
+    }
     for (const [n, r] of Object.entries(key.questions)) {
       if (String(r.questionNumber) !== n) fail("INVALID_KEY", `Question ${n} has mismatched number ${r.questionNumber}.`);
       if (r.points < 0 || r.negative < 0) fail("INVALID_KEY", `Question ${n}: points and penalties must be ≥ 0.`);

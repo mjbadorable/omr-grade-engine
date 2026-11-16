@@ -91,6 +91,18 @@ describe("scan and correction fields", () => {
     expect(await code(teacher.mutation(api.grading.resolveConflict, { examId, rollKey: "1", keepScanId: scanId, clientId: "c".repeat(101) }))).toBe("TOO_LONG");
     expect(await code(teacher.mutation(api.grading.updateAnswerKey, { examId, baseVersion: 1, key: answerKeyToBody(kit.key), clientKeyId: "k".repeat(101) }))).toBe("TOO_LONG");
   });
+
+  it("updateAnswerKey bounds the grading scale: at most 30 grades, short names, cutoffs from 0 to 100", async () => {
+    const { teacher, examId } = await world();
+    const withBands = (gradeBands: { minPercent: number; label: string }[]) => ({ ...answerKeyToBody(kit.key), gradeBands });
+    const save = (gradeBands: { minPercent: number; label: string }[]) => teacher.mutation(api.grading.updateAnswerKey, { examId, baseVersion: 1, key: withBands(gradeBands) });
+    const many = Array.from({ length: 31 }, (_, i) => ({ minPercent: i, label: `G${i}` }));
+    expect(await code(save(many))).toBe("TOO_MANY");
+    expect(await code(save([{ minPercent: 0, label: "x".repeat(21) }]))).toBe("TOO_LONG");
+    expect(await code(save([{ minPercent: 0, label: "F" }, { minPercent: 101, label: "A" }]))).toBe("INVALID_KEY");
+    expect(await code(save([{ minPercent: 0, label: "F" }, { minPercent: -1, label: "A" }]))).toBe("INVALID_KEY");
+    expect(await code(save([{ minPercent: 0, label: "5.00" }, { minPercent: 74.5, label: "3.00" }]))).toBe("OK");
+  });
 });
 
 describe("admin inputs", () => {

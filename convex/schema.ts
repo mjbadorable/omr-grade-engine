@@ -106,6 +106,17 @@ export default defineSchema({
     createdBy: v.id("users"),
   }).index("by_org", ["orgId"]),
 
+  /** Reusable classes / sections (convex/classes.ts): private to the teacher who saved them. */
+  classes: defineTable({
+    orgId: v.id("orgs"),
+    name: v.string(),
+    section: v.optional(v.string()),
+    students: v.array(student),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org_owner", ["orgId", "createdBy"]),
+
   examFolders: defineTable({
     orgId: v.id("orgs"),
     name: v.string(),

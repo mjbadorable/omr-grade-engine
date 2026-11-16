@@ -20,11 +20,15 @@ import { readStoredKey, readStoredTemplate, writeStoredTemplate } from "@/lib/st
 import type { ScanOutput } from "@/lib/vision/scan-sheet";
 import { ScannerClient } from "@/lib/vision/scanner-client";
 import type { CornerPoints, ScanTelemetry, VisionErrorPayload } from "@/lib/vision/types";
-import { bitmapToJpeg, getMeta, listScans, putScan } from "@/lib/storage/scan-store";
+import { bitmapToJpeg, deleteScan, getMeta, listScans, putOverride, putScan } from "@/lib/storage/scan-store";
 import { advise, buildDiagnosticExport, RING_STYLE, summarize } from "@/lib/vision/diagnostics";
 import { analyzeFrame, type FrameQuality, guidance, StabilityTracker, type StabilityState } from "@/lib/vision/frame-quality";
 import { DEFAULT_TUNING, isDefaultTuning, normalizeTuning, readStoredTuning, type ScanTuning, TUNING_LIMITS, TUNING_PRESETS, writeStoredTuning } from "@/lib/vision/tuning";
-import { identity, recordScan, rosterMetaKey } from "@/lib/sync/local-sync";
+import { identity, recordOverride, recordScan, rosterMetaKey } from "@/lib/sync/local-sync";
+import { PublishGate } from "@/lib/scan-publish";
+import { findStudent, rollChangePatch, studentChoices } from "@/lib/scan-actions";
+import type { ManualOverridePatch } from "@/lib/review/overrides";
+import type { Student } from "@/lib/roster/schema";
 import type { SheetRef } from "@/lib/roster/reconcile";
 import type { Roster } from "@/lib/roster/schema";
 import { buildScanRosterChecklist, type RollChecklistStatus } from "@/lib/scan-roster";
@@ -46,6 +50,8 @@ interface Job {
   /** calibration run: not saved to the gradebook and not uploaded */
   calibration?: boolean;
   tuning?: ScanTuning;
+  /** roll number picked on the instant card (stored as an audit-logged override, never an edit of the scan) */
+  rollOverride?: string;
   /** upload state when a cloud exam is selected */
   cloud?: "uploading" | "stored" | "already_stored" | "duplicate_identical" | "conflict" | "rejected" | "failed";
 }
@@ -64,6 +70,13 @@ export default function ScannerApp() {
   const [muted, setMuted] = useState(false);
   const [banner, setBanner] = useState<number | null>(null);
   const cloudKey = useRef<AnswerKey | null>(null);
+  // A new scan is saved on this device at once, but its hand-off to the sync queue / cloud waits until the
+  // teacher keeps it (Next / Inspect / dismiss), so "Erase Paper" can discard a bad scan cleanly.
+  const gate = useRef(new PublishGate());
+  const resolvedIds = useRef(new Set<number>());   // banner already moved on from these jobs
+  const erasedIds = useRef(new Set<number>());
+  const pendingPatches = useRef(new Map<number, ManualOverridePatch[]>());
+  const prevBanner = useRef<number | null>(null);
   const rearm = useRef<() => void>(() => {});
   const fileInput = useRef<HTMLInputElement>(null);
   const [mode, setModeState] = useState<ScanMode>(DEFAULT_SCAN_MODE);
@@ -73,6 +86,17 @@ export default function ScannerApp() {
   useEffect(() => { setAutoSnap(readAutoSnap()); }, []);
   useEffect(() => { setMuted(readMuted()); }, []);
   const toggleMute = () => { const m = !muted; setMuted(m); writeMuted(m); if (!m) { unlockAudio(); playChime(); } };
+  useEffect(() => {
+    const prev = prevBanner.current;
+    if (prev !== null && prev !== banner) { resolvedIds.current.add(prev); void gate.current.release(prev); }
+    prevBanner.current = banner;
+  }, [banner]);
+  useEffect(() => {
+    const g = gate.current;
+    const flush = () => { void g.releaseAll(); };
+    window.addEventListener("pagehide", flush);
+    return () => { window.removeEventListener("pagehide", flush); flush(); };
+  }, []);
   // ---- field calibration
   const [tuning, setTuning] = useState<ScanTuning>(DEFAULT_TUNING);
   const [diagnostics, setDiagnostics] = useState(false);
@@ -123,7 +147,7 @@ export default function ScannerApp() {
       activeStoredScans,
       jobs
         .filter((j) => j.status === "done" && j.result && !j.calibration)
-        .map((j) => ({ sheetId: j.sheetId ?? `job-${j.id}`, rollNumber: j.result!.fields.rollNumber, calibration: j.calibration })),
+        .map((j) => ({ sheetId: j.sheetId ?? `job-${j.id}`, rollNumber: j.rollOverride ?? j.result!.fields.rollNumber, calibration: j.calibration })),
     ),
     [activeRoster, activeStoredScans, jobs],
   );
@@ -167,18 +191,51 @@ export default function ScannerApp() {
         sheetId, layoutHash: result.layoutHash, templateId: result.templateId, name, createdAt: Date.now(),
         result, preview: preview ? await bitmapToJpeg(preview) : null, deviceId, teacherId,
       };
-      await putScan(stored).then(() => recordScan(stored)).catch(() => { /* storage unavailable: results stay on screen */ });
-      if (session?.selection.examId && session.selection.layoutHash === result.layoutHash) {
-        patchJob(id, { cloud: "uploading" });
-        session.uploadScan(stored)
-          .then((r) => patchJob(id, { cloud: r ? (r.status as Job["cloud"]) : "failed" }))
-          .catch(() => patchJob(id, { cloud: "failed" }));
-      }
+      const saved = await putScan(stored).then(() => true).catch(() => false);   // storage unavailable: results stay on screen
+      if (erasedIds.current.has(id)) { if (saved) await deleteScan(sheetId).catch(() => {}); return; }   // erased while still saving
+      const toCloud = !!session?.selection.examId && session.selection.layoutHash === result.layoutHash;
+      const publish = async () => {
+        if (saved) {
+          await recordScan(stored).catch(() => {});
+          for (const p of pendingPatches.current.get(id) ?? []) await recordOverride(result.layoutHash, p).catch(() => {});
+        }
+        if (toCloud && session) {
+          patchJob(id, { cloud: "uploading" });
+          session.uploadScan(stored)
+            .then((r) => patchJob(id, { cloud: r ? (r.status as Job["cloud"]) : "failed" }))
+            .catch(() => patchJob(id, { cloud: "failed" }));
+        }
+      };
+      if (resolvedIds.current.has(id)) { await publish(); return; }   // the card was already dismissed
+      gate.current.hold(id, publish);
+      setTimeout(() => { void gate.current.release(id); }, 60_000);     // never hold a kept scan back for long
     } catch (e) {
       patchJob(id, { status: "error", error: e as VisionErrorPayload });
       playChime("warn");
     }
   }, [patchJob, session]);
+
+  async function eraseJob(id: number) {
+    const j = jobs.find((x) => x.id === id);
+    erasedIds.current.add(id);
+    gate.current.discard(id);                       // nothing reaches the sync queue or the cloud
+    pendingPatches.current.delete(id);
+    setBanner(null);
+    setJobs((js) => js.filter((x) => x.id !== id));
+    setSelected((cur) => (cur === id ? null : cur));
+    if (j?.sheetId) await deleteScan(j.sheetId).catch(() => {});   // and off this device's storage
+    if (mode === "camera") rearm.current();
+  }
+
+  async function changeStudent(id: number, student: Student) {
+    const j = jobs.find((x) => x.id === id);
+    if (!j?.sheetId || !j.result) return;
+    const p = rollChangePatch({ sheetId: j.sheetId, scannedRoll: j.result.fields.rollNumber, newRoll: student.rollNumber, teacherId: identity().teacherId });
+    patchJob(id, { rollOverride: student.rollNumber });
+    await putOverride(p).catch(() => {});           // the gradebook on this device sees it at once
+    if (gate.current.has(id)) pendingPatches.current.set(id, [...(pendingPatches.current.get(id) ?? []), p]);   // queued behind the scan
+    else await recordOverride(j.result.layoutHash, p).catch(() => {});
+  }
 
   async function onFiles(files: FileList | null) {
     if (!files) return;
@@ -410,7 +467,10 @@ export default function ScannerApp() {
       {banner !== null && (() => {
         const j = jobs.find((x) => x.id === banner);
         return j?.instant ? (
-          <InstantBanner job={j} onNext={() => { setBanner(null); if (mode === "camera") rearm.current(); else fileInput.current?.click(); }}
+          <InstantBanner job={j} roster={activeRoster}
+            canChange={!!activeRoster && !(session?.selection.examId && session.selection.layoutHash === j.result?.layoutHash) && !!j.sheetId && !j.calibration}
+            onErase={() => void eraseJob(j.id)} onChangeStudent={(st) => void changeStudent(j.id, st)}
+            onNext={() => { setBanner(null); if (mode === "camera") rearm.current(); else fileInput.current?.click(); }}
             onInspect={() => { setBanner(null); setSelected(j.id); requestAnimationFrame(() => document.getElementById("scan-detail")?.scrollIntoView({ behavior: "smooth", block: "start" })); }}
             onClose={() => setBanner(null)} />
         ) : null;
@@ -751,34 +811,77 @@ function CornerBrackets({ locked, steady }: { locked: boolean; steady: boolean }
 }
 
 // ------------------------------------------------------------------ instant result
-function InstantBanner({ job, onNext, onInspect, onClose }: { job: Job; onNext: () => void; onInspect: () => void; onClose: () => void }) {
+function InstantBanner({ job, roster, canChange, onErase, onChangeStudent, onNext, onInspect, onClose }: {
+  job: Job; roster: Roster | null; canChange: boolean;
+  onErase: () => void; onChangeStudent: (s: Student) => void; onNext: () => void; onInspect: () => void; onClose: () => void;
+}) {
   const r = job.instant!;
   const good = r.keyed && r.percentage >= 75;
+  const roll = job.rollOverride ?? r.rollNumber;
+  const student = findStudent(roster, roll);
+  const [picking, setPicking] = useState(false);
+  const [q, setQ] = useState("");
+  const choices = useMemo(() => (picking ? studentChoices(roster, q) : []), [picking, roster, q]);
+  const stat = (label: string, value: number, testid: string) => (
+    <div>
+      <p className="text-xs text-zinc-500">{label}</p>
+      <p className={`text-lg font-semibold tabular-nums ${value ? "text-amber-600 dark:text-amber-400" : "text-zinc-700 dark:text-zinc-300"}`} data-testid={testid}>{value}</p>
+    </div>
+  );
   return (
     <div role="status" aria-live="polite" data-testid="instant-result" className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-3xl p-2 sm:p-4">
       <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950">
         <div className="h-1 bg-gradient-to-r from-[var(--brand)] via-[var(--gold)] to-[var(--brand)]" />
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 p-4">
           <dl className="grid grid-cols-2 gap-x-5 text-sm">
-            <dt className="text-xs text-zinc-500">Student ID</dt><dt className="text-xs text-zinc-500">Set</dt>
-            <dd className="font-mono text-lg font-semibold" data-testid="instant-roll">{r.rollNumber ?? "unreadable"}</dd>
+            <dt className="text-xs text-zinc-500">{student ? "Student" : "Student ID"}</dt><dt className="text-xs text-zinc-500">Set</dt>
+            <dd className="min-w-0">
+              {student ? (
+                <>
+                  <span className="block truncate text-lg font-semibold" data-testid="instant-student">{student.name}</span>
+                  <span className="v-mono block text-xs text-zinc-500" data-testid="instant-roll">{roll}</span>
+                </>
+              ) : (
+                <span className="font-mono text-lg font-semibold" data-testid="instant-roll">{roll ?? "unreadable"}</span>
+              )}
+            </dd>
             <dd className="font-mono text-lg font-semibold">{r.examSet ?? "–"}</dd>
           </dl>
           <div>
             <p className="text-xs text-zinc-500">Score</p>
             <p className={`text-2xl font-bold tabular-nums ${!r.keyed ? "text-zinc-500" : good ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-900 dark:text-zinc-100"}`} data-testid="instant-score">{r.scoreText}{r.grade && r.keyed ? <span className="ml-2 text-sm font-semibold text-zinc-500">{r.grade}</span> : null}</p>
           </div>
-          <div>
-            <p className="text-xs text-zinc-500">Flagged</p>
-            <p className={`text-lg font-semibold tabular-nums ${r.flagged ? "text-amber-600 dark:text-amber-400" : "text-zinc-700 dark:text-zinc-300"}`} data-testid="instant-flagged">{r.flagged}</p>
-            <p className="text-[11px] text-zinc-500">{r.doubleMarked} double-marked · {r.blank} blank</p>
+          <div className="flex gap-5">
+            {stat("Blank", r.blank, "instant-blank")}
+            {stat("Multiple marks", r.doubleMarked, "instant-multiple")}
+            <span className="sr-only" data-testid="instant-flagged">{r.flagged}</span>
           </div>
           <button type="button" onClick={onClose} aria-label="Dismiss result" className="ml-auto self-start rounded px-2 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800">×</button>
         </div>
         {!r.keyed && <p className="border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500 dark:border-zinc-800">Set the answer key on the Grade page and every scanned sheet is scored instantly.</p>}
-        <div className="flex gap-2 border-t border-zinc-100 p-3 dark:border-zinc-800">
-          <button type="button" autoFocus onClick={onNext} className={`${btn} flex-1 bg-indigo-600 py-2 text-white hover:bg-indigo-700`}>Scan Next Sheet</button>
-          <button type="button" onClick={onInspect} className={`${btn} flex-1 border border-zinc-300 py-2 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}>Inspect Paper</button>
+        {roster && !student && roll && <p className="border-t border-zinc-100 px-4 py-2 text-xs text-amber-700 dark:border-zinc-800 dark:text-amber-300" data-testid="instant-unregistered">This ID is not on the class list.{canChange ? " Use Change student if it was misread." : ""}</p>}
+        {picking && (
+          <div className="space-y-2 border-t border-zinc-100 p-3 dark:border-zinc-800" data-testid="student-picker">
+            <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400" htmlFor="student-search">Find a student by name or ID</label>
+            <input id="student-search" name="student-search" autoFocus className="v-input w-full" value={q} onChange={(e) => setQ(e.target.value)} autoComplete="off" />
+            <ul className="max-h-40 overflow-y-auto" role="listbox" aria-label="Students">
+              {choices.map((st) => (
+                <li key={st.rollNumber}>
+                  <button type="button" role="option" aria-selected={false} className="flex min-h-10 w-full items-center justify-between gap-3 rounded-lg px-3 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    onClick={() => { onChangeStudent(st); setPicking(false); setQ(""); }}>
+                    <span className="truncate">{st.name}</span><span className="v-mono text-xs text-zinc-500">{st.rollNumber}</span>
+                  </button>
+                </li>
+              ))}
+              {choices.length === 0 && <li className="px-3 py-2 text-sm text-zinc-500">No match on the class list.</li>}
+            </ul>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2 border-t border-zinc-100 p-3 dark:border-zinc-800">
+          <button type="button" autoFocus={!picking} onClick={onNext} className={`${btn} min-h-10 flex-1 bg-indigo-600 py-2 text-white hover:bg-indigo-700`}>Scan Next Sheet</button>
+          <button type="button" onClick={onInspect} className={`${btn} min-h-10 flex-1 border border-zinc-300 py-2 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}>Inspect Paper</button>
+          {canChange && <button type="button" data-testid="change-student" aria-expanded={picking} onClick={() => setPicking((v) => !v)} className={`${btn} min-h-10 border border-zinc-300 py-2 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}>Change student</button>}
+          <button type="button" data-testid="erase-paper" onClick={onErase} title="Throw this scan away: it is removed from this device and is never queued or uploaded" className={`${btn} min-h-10 border border-red-300 py-2 text-red-700 hover:bg-red-50 dark:border-red-500/40 dark:text-red-300 dark:hover:bg-red-500/10`}>Erase paper</button>
         </div>
       </div>
     </div>

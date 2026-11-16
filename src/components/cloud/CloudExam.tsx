@@ -14,6 +14,8 @@ import type { OMRTemplate } from "@/lib/omr/schema";
 import type { ManualOverridePatch } from "@/lib/review/overrides";
 import type { ExamPeriod, Syllabus } from "@/lib/syllabus/types";
 import type { Roster } from "@/lib/roster/schema";
+import { classFromRoster, classToRoster } from "@/lib/classes/classes";
+import type { ClassesPort } from "@/lib/classes/port";
 import type { StoredScan } from "@/lib/storage/scan-store";
 import type { ConflictResolution } from "@/lib/sync/types";
 import { canonicalFrame, mmToCanonical } from "@/lib/vision/geometry";
@@ -54,6 +56,8 @@ export interface CloudExamValue {
   addPatches: (patches: ManualOverridePatch[]) => Promise<void>;
   resolve: (rollKey: string, keepScanId: string, supersededScanIds?: string[]) => Promise<void>;
   setRoster: (r: Roster) => Promise<void>;
+  /** the signed-in teacher's saved classes (private to them) */
+  classes: ClassesPort;
   /** scan image + per-bubble readouts for the review modal */
   loadScanDetail: (scanId: string) => Promise<StoredScan | null>;
 }
@@ -80,6 +84,29 @@ export function CloudExamProvider({ children }: { children: ReactNode }) {
   const convex = useConvex();
   const sync = session?.sync;
   const setRosterM = useMutation(api.exams.setRoster);
+  // the teacher's saved classes live in the cloud so they follow them to any device
+  const orgId = exam?.exam.orgId ?? null;
+  const classRows = useQuery(api.classes.listMine, orgId ? { orgId } : "skip");
+  const saveClassM = useMutation(api.classes.save);
+  const removeClassM = useMutation(api.classes.remove);
+  const classes = useMemo<ClassesPort>(() => ({
+    where: "cloud",
+    list: classRows?.map((c) => ({ id: c._id, name: c.name, section: c.section, count: c.count })),
+    save: async (name, section, roster) => {
+      if (!orgId) return "Choose a school first.";
+      const v = classFromRoster(roster, name, section);
+      try { await saveClassM({ orgId, name: v.name, ...(v.section ? { section: v.section } : {}), students: v.students }); return null; }
+      catch (e) { return (e as { data?: { message?: string } }).data?.message ?? "Could not save the class."; }
+    },
+    load: async (id) => {
+      const c = await convex.query(api.classes.get, { classId: id as Id<"classes"> }).catch(() => null);
+      return c ? classToRoster({ name: c.name, section: c.section ?? undefined, students: c.students }, Date.now()) : null;
+    },
+    remove: async (id) => {
+      try { await removeClassM({ classId: id as Id<"classes"> }); return null; }
+      catch (e) { return (e as { data?: { message?: string } }).data?.message ?? "Could not remove the class."; }
+    },
+  }), [classRows, orgId, convex, saveClassM, removeClassM]);
 
   const template = session?.examTemplate ?? null;
   const layoutHash = template?.layoutHash ?? "";
@@ -159,9 +186,10 @@ export function CloudExamProvider({ children }: { children: ReactNode }) {
         void sync.drain();
       },
       setRoster: async (r) => { await setRosterM({ examId, roster: r }); },
+      classes,
       loadScanDetail,
     };
-  }, [examId, exam, syllabus, syllabusId, template, key, scans, feed.status, patches, res, roster, analytics, saveKey, sync, layoutHash, setRosterM, loadScanDetail]);
+  }, [examId, exam, syllabus, syllabusId, template, key, scans, feed.status, patches, res, roster, analytics, saveKey, sync, layoutHash, setRosterM, classes, loadScanDetail]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

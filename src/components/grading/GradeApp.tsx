@@ -14,7 +14,7 @@ import { renderScorecards } from "@/lib/export/scorecard-client";
 import type { ScorecardInput } from "@/lib/export/scorecard-generator";
 import { computeClassStanding } from "@/lib/export/standing";
 import { keyFromScannedAnswers, keyFromTemplate, parseKey, serializeKey, updateKey } from "@/lib/grading/answer-key";
-import { gradebookRows, toCsv, toWorkbook } from "@/lib/grading/export";
+import { finalGradesRows, gradebookRows, toCsv, toFinalGradesWorkbook, toWorkbook } from "@/lib/grading/export";
 import { analyzeItems } from "@/lib/grading/item-analysis";
 import { flaggedQueue } from "@/lib/grading/review-queue";
 import { rescoreBatch } from "@/lib/grading/scorer";
@@ -47,6 +47,7 @@ import KeyCanvas, { ScoringRules } from "./KeyEditor";
 import OutcomesView from "./OutcomesView";
 import ReviewModal from "./review-modal";
 import RosterPanel from "./RosterPanel";
+import { useLocalClasses } from "./useLocalClasses";
 import SyncPanel from "./SyncPanel";
 
 type Tab = "key" | "gradebook" | "roster" | "analysis" | "outcomes";
@@ -87,6 +88,7 @@ export default function GradeApp() {
 
   // ---- cloud (Convex) mode: the selected exam's live data replaces the local stores
   const cloud = useCloudExam();
+  const localClasses = useLocalClasses();
   const cloudExamId = cloud?.examId ?? null;
   const patches = cloud ? cloud.patches : localPatches;
   const resolutions = cloud ? cloud.resolutions : localResolutions;
@@ -323,6 +325,15 @@ export default function GradeApp() {
     download(`${key.examId}-v${key.version}-results.xlsx`, toWorkbook(XLSX, graded.sheets, key, graded.report), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   }
 
+  async function exportFinalGrades(kind: "csv" | "xlsx") {
+    if (!graded || !key) return;
+    const t = finalGradesRows(graded.sheets, roster);
+    const base = `${key.examId}-v${key.version}-final-grades`;
+    if (kind === "csv") { download(`${base}.csv`, "﻿" + toCsv(t), "text/csv;charset=utf-8"); return; }
+    const XLSX = await import("xlsx");
+    download(`${base}.xlsx`, toFinalGradesWorkbook(XLSX, t), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  }
+
   async function scorecards(only?: string) {
     if (!graded || !template || !key) return;
     setBusy("Building scorecards…");
@@ -396,6 +407,8 @@ export default function GradeApp() {
   const exportItems: MenuItem[] = [
     { label: "Excel (.xlsx)", onClick: exportXlsx, disabled: !sheetsN, testId: "export-xlsx" },
     { label: "CSV", onClick: () => { if (graded) download(`${key.examId}-v${key.version}-results.csv`, "﻿" + toCsv(gradebookRows(graded.sheets, key)), "text/csv;charset=utf-8"); }, disabled: !sheetsN, testId: "export-csv" },
+    { label: "Final grades (CSV)", onClick: () => exportFinalGrades("csv"), disabled: !sheetsN, testId: "export-final-csv" },
+    { label: "Final grades (Excel)", onClick: () => exportFinalGrades("xlsx"), disabled: !sheetsN, testId: "export-final-xlsx" },
     { label: busy ?? "Scorecards PDF", onClick: () => scorecards(), disabled: !sheetsN || !!busy, testId: "export-scorecards" },
   ];
   const moreItems: MenuItem[] = [
@@ -479,7 +492,7 @@ export default function GradeApp() {
           <div className="space-y-6" data-testid="review-exceptions">
             <p className="text-sm text-zinc-500">Sheets that need a decision: scans of the same student that disagree, roll numbers that are not on your class list, and students with no sheet.</p>
             <ConflictPanel groups={groups} sheets={sourceById as Map<string, SyncedSheet>} onKeep={keep} onOpen={setOpenId} />
-            <RosterPanel roster={roster} recon={recon} onImport={importRosterRecord} onOpen={setOpenId} download={(n, d, t) => download(n, d, t)} />
+            <RosterPanel roster={roster} recon={recon} onImport={importRosterRecord} onOpen={setOpenId} download={(n, d, t) => download(n, d, t)} classes={cloud ? cloud.classes : localClasses} />
           </div>
         )}
 

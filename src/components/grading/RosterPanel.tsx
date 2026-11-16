@@ -4,6 +4,7 @@ import { useState } from "react";
 import { type ImportResult, importRoster, rosterToCsv } from "@/lib/roster/importer";
 import type { Reconciliation } from "@/lib/roster/reconcile";
 import type { Roster } from "@/lib/roster/schema";
+import type { ClassesPort } from "@/lib/classes/port";
 
 const BADGE: Record<string, string> = {
   MATCHED: "v-badge-ok",
@@ -13,12 +14,78 @@ const BADGE: Record<string, string> = {
 };
 const LABEL: Record<string, string> = { MATCHED: "Matched", ABSENT: "Absent", UNREGISTERED_STUDENT: "Not on roster", UNREADABLE_ROLL: "Roll unreadable" };
 
-export default function RosterPanel({ roster, recon, onImport, onOpen, download }: {
+/** Pick a saved class to use for this exam (one click), or save the current roster as a class. */
+function ClassPicker({ classes, roster, onAttach }: { classes: ClassesPort; roster: Roster | null; onAttach: (r: Roster) => void }) {
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [name, setName] = useState("");
+  const [section, setSection] = useState("");
+  const [busy, setBusy] = useState(false);
+  const where = classes.where === "cloud" ? "your account" : "this device";
+
+  async function attach(id: string) {
+    setBusy(true);
+    const r = await classes.load(id).catch(() => null);
+    setBusy(false);
+    if (!r) { setMsg({ ok: false, text: "Could not open that class." }); return; }
+    onAttach(r);
+    setMsg({ ok: true, text: `Using ${r.name} (${r.students.length} students) for this exam.` });
+  }
+  async function save() {
+    if (!roster) return;
+    setBusy(true);
+    const err = await classes.save(name.trim() || roster.name, section.trim() || undefined, roster).catch(() => "Could not save the class.");
+    setBusy(false);
+    if (err) { setMsg({ ok: false, text: err }); return; }
+    setMsg({ ok: true, text: `Saved to ${where}. Pick it for any exam next time.` });
+    setSaving(false);
+  }
+
+  return (
+    <div className="v-panel space-y-3 p-3 text-sm" data-testid="class-picker">
+      <div className="flex flex-wrap items-center gap-2">
+        <label htmlFor="saved-class" className="font-medium">Saved classes</label>
+        <select id="saved-class" name="saved-class" className="v-input min-h-10 min-w-48 flex-1" value="" disabled={busy || !classes.list?.length} onChange={(e) => { if (e.target.value) void attach(e.target.value); }}>
+          <option value="">{classes.list === undefined ? "Loading…" : classes.list.length ? "Use a saved class for this exam…" : "No saved classes yet"}</option>
+          {classes.list?.map((c) => <option key={c.id} value={c.id}>{c.name}{c.section ? ` · ${c.section}` : ""} ({c.count} students)</option>)}
+        </select>
+        {roster && !saving && <button type="button" className="v-btn min-h-10" data-testid="save-as-class" onClick={() => { setName(roster.name); setSection(""); setSaving(true); setMsg(null); }}>Save this roster as a class</button>}
+      </div>
+      {saving && roster && (
+        <div className="flex flex-wrap items-end gap-2" data-testid="save-class-form">
+          <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">Class name<input name="class-name" className="v-input mt-1 block w-56" value={name} maxLength={200} onChange={(e) => setName(e.target.value)} /></label>
+          <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400">Section (optional)<input name="class-section" className="v-input mt-1 block w-40" value={section} maxLength={100} onChange={(e) => setSection(e.target.value)} /></label>
+          <button type="button" className="v-btn v-btn-primary min-h-10" disabled={busy} onClick={() => void save()} data-testid="save-class-confirm">Save class</button>
+          <button type="button" className="v-btn min-h-10" onClick={() => setSaving(false)}>Cancel</button>
+        </div>
+      )}
+      {msg && <p role="status" data-testid="class-message" className={msg.ok ? "text-emerald-700 dark:text-emerald-300" : "text-red-700 dark:text-red-300"}>{msg.text}</p>}
+      {!!classes.list?.length && (
+        <details>
+          <summary className="cursor-pointer text-xs text-zinc-500">Manage saved classes ({classes.where === "cloud" ? "kept on your account" : "kept on this device"})</summary>
+          <ul className="mt-2 space-y-1">
+            {classes.list.map((c) => (
+              <li key={c.id} className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate">{c.name}{c.section ? ` · ${c.section}` : ""} <span className="text-zinc-500">({c.count})</span></span>
+                <button type="button" className="v-btn !px-2.5 !py-1 text-red-700 dark:text-red-300" aria-label={`Remove class ${c.name}`}
+                  onClick={async () => { if (!confirm(`Remove the saved class "${c.name}"? Exams that already use it keep their class list.`)) return; const err = await classes.remove(c.id); setMsg(err ? { ok: false, text: err } : { ok: true, text: "Class removed." }); }}>Remove</button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
+export default function RosterPanel({ roster, recon, onImport, onOpen, download, classes }: {
   roster: Roster | null;
   recon: Reconciliation;
   onImport: (r: Roster) => void;
   onOpen: (sheetId: string) => void;
   download: (name: string, data: string, type: string) => void;
+  /** saved classes (this device or the cloud); omit to hide the picker */
+  classes?: ClassesPort;
 }) {
   const [last, setLast] = useState<ImportResult | null>(null);
   const [filter, setFilter] = useState<string>("all");
@@ -34,6 +101,7 @@ export default function RosterPanel({ roster, recon, onImport, onOpen, download 
 
   return (
     <div className="space-y-4">
+      {classes && <ClassPicker classes={classes} roster={roster} onAttach={onImport} />}
       <div className="v-panel flex flex-wrap items-center gap-2 p-3 text-sm">
         <label className="v-btn v-btn-primary cursor-pointer">
           Import roster CSV<input id="roster-file" name="roster-file" type="file" accept=".csv,text/csv,.txt" className="sr-only" onChange={(e) => { onFile(e.target.files?.[0]); e.target.value = ""; }} />

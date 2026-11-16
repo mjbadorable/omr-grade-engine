@@ -1,6 +1,8 @@
 /**
  * Tabular exports (pure). `gradebookRows` feeds both CSV and the SheetJS workbook.
  */
+import { findStudent } from "@/lib/scan-actions";
+import type { Roster } from "@/lib/roster/schema";
 import type { AnswerKey, PsychometricReport, ScoredSheet } from "./types";
 
 type Cell = string | number | null;
@@ -65,5 +67,25 @@ export function toWorkbook(XLSX: typeof import("xlsx"), sheets: readonly ScoredS
     ["Exam", key.examId], ["Key version", key.version], ["Students", rep.n], ["Items (KR-20)", rep.k],
     ["Mean", rep.mean], ["SD", rep.sd], ["Median", rep.median], ["Min", rep.min], ["Max", rep.max], ["KR-20", rep.kr20], ["SEM", rep.sem],
   ]), "Summary");
+  return XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+}
+
+/** Registrar preset: roll number, name (from the class list) and the final grade on the exam's grading scale. */
+export function finalGradesRows(sheets: readonly ScoredSheet[], roster: Roster | null): { header: string[]; rows: Cell[][] } {
+  const rows = [...sheets]
+    .sort((a, b) => (a.rollNumber ?? "\uffff").localeCompare(b.rollNumber ?? "\uffff", undefined, { numeric: true }))
+    .map((s): Cell[] => [s.rollNumber ?? "", findStudent(roster, s.rollNumber)?.name ?? "", s.grade ?? ""]);
+  return { header: ["Roll Number", "Name", "Final Grade"], rows };
+}
+
+/** One-sheet .xlsx of the final grades; a numeric scale (1.25, 2.00) is written as a number so the registrar can sort it. */
+export function toFinalGradesWorkbook(XLSX: typeof import("xlsx"), t: { header: string[]; rows: Cell[][] }): ArrayBuffer {
+  const wb = XLSX.utils.book_new();
+  const numeric = t.rows.length > 0 && t.rows.every((r) => /^\d+(\.\d+)?$/.test(String(r[2])));
+  const rows = numeric ? t.rows.map((r) => [r[0], r[1], Number(r[2])]) : t.rows;
+  const ws = XLSX.utils.aoa_to_sheet([t.header, ...rows]);
+  if (numeric) rows.forEach((_, i) => { const c = ws[XLSX.utils.encode_cell({ r: i + 1, c: 2 })]; if (c) c.z = "0.00"; });
+  ws["!cols"] = [{ wch: 14 }, { wch: 32 }, { wch: 12 }];
+  XLSX.utils.book_append_sheet(wb, ws, "Final grades");
   return XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
 }

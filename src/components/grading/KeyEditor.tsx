@@ -5,6 +5,7 @@ import { formatSetMappingText, parseSetMappingText, updateAllRules, updateKey, u
 import type { AnswerKey, ItemStatistics, MatchMode, QuestionRule } from "@/lib/grading/types";
 import { gridRows, keyedCount, toggleRowBubble } from "@/lib/grading/key-grid";
 import { QualityDot } from "./QualityBadge";
+import GradeScaleEditor from "./GradeScaleEditor";
 
 const input = "rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-sm tabular-nums outline-none focus:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900";
 const num = (v: string, fallback: number) => (v.trim() === "" || Number.isNaN(Number(v)) ? fallback : Number(v));
@@ -80,7 +81,6 @@ export function ScoringRules({ answerKey, onChange, keySources, onExport, onImpo
   const [deduct, setDeduct] = useState(() => rules.some((r) => r.negative > 0));
   const positive = (v: string) => (Number(v) > 0 ? v : "1");
   const [penalty, setPenalty] = useState(() => positive(uniform((r) => r.negative)));
-  const [bands, setBands] = useState(() => answerKey.gradeBands.map((b) => `${b.label}≥${b.minPercent}`).join(", "));
   // follow external key changes (import, reset, another teacher)
   const sig = `${uniform((r) => r.points)}|${uniform((r) => r.negative)}`;
   const [seen, setSeen] = useState(sig);
@@ -120,13 +120,7 @@ export function ScoringRules({ answerKey, onChange, keySources, onExport, onImpo
       <details className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800" data-testid="key-tools">
         <summary className="cursor-pointer text-sm font-medium">Grading Scale &amp; Key Tools</summary>
         <div className="mt-3 space-y-3">
-          <label className="block"><span className={label}>Grade cutoffs</span>
-            <input className={`${input} w-full`} value={bands} onChange={(e) => setBands(e.target.value)} name="grade-bands" aria-label="Grade bands" placeholder="A≥90, B≥80, C≥70, D≥60, F≥0"
-              onBlur={() => {
-                const parsed = bands.split(",").map((x) => /^\s*([^≥>]+?)\s*(?:≥|>=)\s*(\d+(?:\.\d+)?)\s*$/.exec(x)).filter((m): m is RegExpExecArray => !!m).map((m) => ({ label: m[1], minPercent: Number(m[2]) }));
-                if (parsed.length) onChange(updateKey(answerKey, { gradeBands: parsed }));
-              }} />
-          </label>
+          <GradeScaleEditor bands={answerKey.gradeBands} onChange={(gradeBands) => onChange(updateKey(answerKey, { gradeBands }))} />
           {setLabels.length > 1 && <SetMappings answerKey={answerKey} onChange={onChange} />}
           {keySources.length > 0 && (
             <select className={`${input} w-full`} value="" name="key-from-sheet" aria-label="Take key from a scanned sheet" onChange={(e) => keySources.find((s) => s.id === e.target.value)?.apply()}>
