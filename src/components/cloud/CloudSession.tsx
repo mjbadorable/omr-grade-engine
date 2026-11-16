@@ -10,6 +10,7 @@ import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import type { ScanSubmitResult } from "../../../convex/grading";
 import { setDevToken } from "@/lib/cloud/dev-auth";
+import { resolveCloudSelection } from "@/lib/cloud/selection";
 import { DEFAULT_ORG_NAME } from "@/lib/institution";
 import { type OMRTemplate, OMRTemplateSchema } from "@/lib/omr/schema";
 import type { Role } from "@/lib/roles/policy";
@@ -81,20 +82,24 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
 
   const ready = isAuthenticated && !!me;
   const orgs = useQuery(api.orgs.listMine, ready ? {} : "skip");
-  const exams = useQuery(api.exams.listByOrg, ready && selection.orgId ? { orgId: selection.orgId } : "skip");
-  const examDoc = useQuery(api.exams.get, ready && selection.examId ? { examId: selection.examId } : "skip");
-  const examTemplate = useMemo(() => {
-    if (examDoc === undefined) return selection.examId ? undefined : null;
-    const p = OMRTemplateSchema.safeParse(examDoc?.template);
-    return p.success ? p.data : null;
-  }, [examDoc, selection.examId]);
-
   // Single institution: join (and if needed create) the USA workspace once, then bind to it.
   const ensureDefaultM = useMutation(api.orgs.ensureDefault);
   const myAccess = useQuery(api.orgs.myAccess, ready ? {} : "skip");
   const requestAccessM = useMutation(api.orgs.requestAccess);
   const ensuring = useRef(false);
   const defaultOrg = orgs?.find((o) => o.name === DEFAULT_ORG_NAME) ?? null;
+
+  const exams = useQuery(api.exams.listByOrg, ready && defaultOrg ? { orgId: defaultOrg._id } : "skip");
+  const effectiveSelection = useMemo(
+    () => resolveCloudSelection({ ready, defaultOrgId: defaultOrg?._id ?? null, selection, exams }),
+    [ready, defaultOrg, selection, exams],
+  );
+  const examDoc = useQuery(api.exams.get, effectiveSelection.examId ? { examId: effectiveSelection.examId } : "skip");
+  const examTemplate = useMemo(() => {
+    if (examDoc === undefined) return effectiveSelection.examId ? undefined : null;
+    const p = OMRTemplateSchema.safeParse(examDoc?.template);
+    return p.success ? p.data : null;
+  }, [examDoc, effectiveSelection.examId]);
   useEffect(() => {
     if (!ready) { ensuring.current = false; return; }
     if (orgs === undefined) return;
@@ -139,7 +144,7 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
   const value: CloudSessionValue = {
     authMode, isLoading, isAuthenticated, me, access,
     signInDev: (t) => setDevToken(t), signOut: () => setDevToken(null),
-    orgs, exams, selection, examTemplate,
+    orgs, exams, selection: effectiveSelection, examTemplate,
     workspace: {
       orgId: defaultOrg?._id ?? null, name: DEFAULT_ORG_NAME, role: (defaultOrg?.role as Role | undefined) ?? null, ready: !!defaultOrg,
       access: !ready || myAccess === undefined || !myAccess.orgId ? "loading" : defaultOrg || myAccess.role ? "member" : myAccess.request === "pending" ? "pending" : myAccess.request === "rejected" ? "rejected" : "none",
