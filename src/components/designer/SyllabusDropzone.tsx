@@ -100,7 +100,7 @@ export default function SyllabusDropzone({ settings, onConfigure }: Props) {
       <dialog ref={dialog} aria-label="Review syllabus" data-testid="syllabus-dialog"
         onCancel={(e) => { e.preventDefault(); closeReview(); }} onClick={(e) => { if (e.target === dialog.current) closeReview(); }}
         className="m-auto max-h-[calc(100dvh-1rem)] w-[min(60rem,calc(100vw-1rem))] overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
-        <div className="h-1.5 bg-gradient-to-r from-indigo-600 via-gold to-indigo-600" />
+        <div className="h-1.5 bg-gradient-to-r from-[var(--brand)] via-[var(--gold)] to-[var(--brand)]" />
         {parsed && syllabus && tos && (
         <div className="grid gap-4 p-4 sm:p-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]" data-testid="syllabus-review">
           <div className="space-y-3 text-sm">

@@ -71,7 +71,7 @@ export default function AboutModal() {
       onClick={(e) => { if (!locked && e.target === ref.current) close(); }}
       className="m-auto w-[min(32rem,calc(100vw-1.5rem))] max-h-[calc(100dvh-1.5rem)] overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
     >
-      <div className="h-1.5 bg-gradient-to-r from-indigo-600 via-gold to-indigo-600" />
+      <div className="h-1.5 bg-gradient-to-r from-[var(--brand)] via-[var(--gold)] to-[var(--brand)]" />
       {!locked && (
         <button type="button" onClick={close} aria-label="Close" className="absolute right-3 top-4 rounded-md px-2 py-1 text-lg leading-none text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800">×</button>
       )}

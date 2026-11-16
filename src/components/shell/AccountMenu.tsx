@@ -10,7 +10,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
-import { useTheme } from "@/components/brand/ThemeToggle";
+import { useMotion, useTheme } from "@/components/brand/ThemeToggle";
 import { useCloudSession } from "@/components/cloud/CloudSession";
 import { ROLE_CLASS, ROLE_LABEL } from "@/lib/active-exam";
 import { openAbout } from "@/lib/acknowledgment";
@@ -48,6 +48,7 @@ function DevSignIn({ onToken, onDone }: { onToken: (t: string) => void; onDone: 
 export default function AccountMenu() {
   const s = useCloudSession();
   const { theme, toggle } = useTheme();
+  const { motion, toggle: toggleMotion } = useMotion();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -72,6 +73,7 @@ export default function AccountMenu() {
       <button type="button" role="menuitem" className={item} data-testid="guide-trigger" onClick={() => { done(); openGuide(); }}><Icon d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z" />Tutorial &amp; Guide</button>
       <button type="button" role="menuitem" className={item} data-testid="about-trigger" onClick={() => { done(); openAbout(); }}><Icon d="M12 11v5M12 8h.01M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z" />About VERITAS</button>
       <button type="button" role="menuitem" className={item} data-testid="theme-toggle" onClick={toggle}><Icon d={theme === "dark" ? "M12 3v2M12 19v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M3 12h2M19 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" : "M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"} />Theme: {theme === "dark" ? "Dark" : "Light"}<span className="ml-auto text-[11px] text-zinc-500">{theme === "dark" ? "switch to Light" : "switch to Dark"}</span></button>
+      <button type="button" role="menuitem" className={item} data-testid="motion-toggle" onClick={toggleMotion}><Icon d="M4 12h4l2-5 4 10 2-5h4" />Motion: {motion === "reduced" ? "Reduced" : "Full"}<span className="ml-auto text-[11px] text-zinc-500">{motion === "reduced" ? "enable" : "reduce"}</span></button>
     </>
   );
 

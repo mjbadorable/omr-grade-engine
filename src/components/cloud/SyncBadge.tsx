@@ -10,7 +10,7 @@ const TONE: Record<SyncTone, string> = {
   offline: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200",
   attention: "border-red-300 bg-red-50 text-red-900 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200",
 };
-const DOT: Record<SyncTone, string> = { synced: "bg-emerald-500", syncing: "animate-pulse bg-indigo-500", offline: "bg-amber-500", attention: "bg-red-500" };
+const DOT: Record<SyncTone, string> = { synced: "bg-emerald-500", syncing: "bg-[var(--brand)] opacity-85", offline: "bg-amber-500", attention: "bg-red-500" };
 
 export default function SyncBadge({ compact = false }: { compact?: boolean }) {
   const s = useCloudSession();

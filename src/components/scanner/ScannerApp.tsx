@@ -625,7 +625,7 @@ function DiagnosticsPanel({ job, result, template, tuning, onRescan }: { job: Jo
 /** 4 target brackets at the viewfinder corners: white while searching, pulsing green once the 4 marks are found. */
 function CornerBrackets({ locked, steady }: { locked: boolean; steady: boolean }) {
   const base = "pointer-events-none absolute size-10 border-4 transition-colors sm:size-12";
-  const tone = locked ? `border-emerald-400 ${steady ? "" : "animate-pulse"} drop-shadow-[0_0_6px_rgba(52,211,153,.8)]` : "border-white/70";
+  const tone = locked ? `border-emerald-400 ${steady ? "" : "opacity-85"} drop-shadow-[0_0_6px_rgba(52,211,153,.8)]` : "border-white/70";
   return (
     <div aria-hidden data-testid="corner-brackets" data-locked={locked} data-steady={steady}>
       <span className={`${base} ${tone} left-[5%] top-[7%] rounded-tl-xl border-b-0 border-r-0`} />
@@ -643,7 +643,7 @@ function InstantBanner({ job, onNext, onInspect, onClose }: { job: Job; onNext: 
   return (
     <div role="status" aria-live="polite" data-testid="instant-result" className="fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-3xl p-2 sm:p-4">
       <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-700 dark:bg-zinc-950">
-        <div className="h-1 bg-gradient-to-r from-indigo-600 via-gold to-indigo-600" />
+        <div className="h-1 bg-gradient-to-r from-[var(--brand)] via-[var(--gold)] to-[var(--brand)]" />
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 p-4">
           <dl className="grid grid-cols-2 gap-x-5 text-sm">
             <dt className="text-xs text-zinc-500">Student ID</dt><dt className="text-xs text-zinc-500">Set</dt>
