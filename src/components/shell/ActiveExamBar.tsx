@@ -98,7 +98,7 @@ export default function ActiveExamBar({ fill = false }: { fill?: boolean }) {
     <div className={`flex min-w-0 items-center gap-2 ${fill ? "w-full" : ""}`} data-testid="active-exam-bar">
       <div className={`relative min-w-0 ${fill ? "flex-1" : ""}`} ref={ref}>
         <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-testid="active-exam" title={`${label} · ${err ?? status}`}
-          className={`flex items-center gap-1.5 rounded-full ${fill ? "w-full" : "max-w-[200px]"} border border-zinc-200 bg-white px-2.5 py-1.5 text-left text-xs hover:border-indigo-300 dark:border-zinc-800 dark:bg-zinc-950`}>
+          className={`flex items-center gap-1.5 rounded-full ${fill ? "w-full" : "max-w-[200px]"} border border-zinc-200 bg-white px-2.5 py-1.5 [@media(pointer:coarse)]:min-h-11 text-left text-xs hover:border-indigo-300 dark:border-zinc-800 dark:bg-zinc-950`}>
           <svg viewBox="0 0 24 24" className="size-3.5 shrink-0 text-indigo-600" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M7 3h8l4 4v14H7zM15 3v4h4M10 12h6M10 16h6" /></svg>
           <span className={`min-w-0 flex-1 truncate font-semibold ${err ? "text-red-600" : ""}`} data-testid="active-exam-name">{label}</span>
           <span className="shrink-0 text-zinc-400" aria-hidden>▾</span>

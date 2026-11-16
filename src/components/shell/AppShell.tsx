@@ -11,6 +11,7 @@ import { isAdmin } from "@/lib/roles/policy";
 import { breadcrumb } from "@/lib/shell-nav";
 import AccessBanner from "./AccessBanner";
 import AccountMenu from "./AccountMenu";
+import OfflineStatus from "./OfflineStatus";
 import Rail from "./Rail";
 
 function Crumbs({ path, search }: { path: string; search: string }) {
@@ -83,12 +84,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <header ref={barRef} data-testid="app-header" className="sticky top-0 z-40 border-b border-[var(--border)] bg-white/75 backdrop-blur-md dark:bg-zinc-950/75">
           <div className="flex h-14 items-center gap-4 px-4 lg:px-6" data-testid="header-tier-1">
             <button ref={menuBtn} type="button" aria-label="Open navigation" aria-expanded={open} aria-controls="mobile-nav" onClick={() => setOpen(true)} data-testid="rail-toggle"
-              className="grid size-10 shrink-0 place-items-center rounded-lg border border-[var(--border)] lg:hidden">
+              className="grid size-10 [@media(pointer:coarse)]:size-11 shrink-0 place-items-center rounded-lg border border-[var(--border)] lg:hidden">
               <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 7h16M4 12h16M4 17h16" /></svg>
             </button>
             <BrandMark className="size-8 lg:hidden" />
             <Suspense fallback={<Crumbs path={path} search="" />}><CrumbsWithSearch /></Suspense>
-            <div className="ml-auto"><AccountMenu /></div>
+            <div className="ml-auto flex items-center gap-2"><OfflineStatus /><AccountMenu /></div>
           </div>
           <AccessBanner />
         </header>

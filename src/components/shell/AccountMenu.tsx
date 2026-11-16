@@ -106,7 +106,7 @@ export default function AccountMenu() {
     return (
       <div className="relative" ref={ref} data-testid="account-menu">
         <button type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-testid="account-trigger"
-          className="flex items-center gap-2 rounded-full border border-zinc-200 py-0.5 pl-0.5 pr-2.5 hover:border-indigo-300 sm:pr-3 dark:border-zinc-800">
+          className="flex items-center gap-2 rounded-full border border-zinc-200 py-0.5 pl-0.5 pr-2.5 [@media(pointer:coarse)]:min-h-11 hover:border-indigo-300 sm:pr-3 dark:border-zinc-800">
           {clerk ? <ClerkControls mode="avatar" name={name} className="size-7" /> : <span className="grid size-7 place-items-center rounded-full bg-indigo-600 text-xs font-bold text-white">{initials(name)}</span>}
           <span className="hidden min-w-0 text-left leading-tight md:block"><span className="block max-w-[10rem] truncate text-xs font-semibold" data-testid="account-name">{name}</span>{s?.me?.email && s.me.name && <span className="block max-w-[10rem] truncate text-[10px] text-zinc-500">{s.me.email}</span>}</span>
           {denied ? <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase text-red-800 dark:bg-red-500/15 dark:text-red-300">Not allowed</span>
@@ -124,7 +124,7 @@ export default function AccountMenu() {
   return (
     <div className="relative" ref={ref} data-testid="account-menu">
       <button type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-testid="account-trigger"
-        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-zinc-200 px-3 text-xs font-medium hover:border-indigo-300 dark:border-zinc-800">
+        className="inline-flex h-8 [@media(pointer:coarse)]:min-h-11 items-center gap-1.5 rounded-full border border-zinc-200 px-3 text-xs font-medium hover:border-indigo-300 dark:border-zinc-800">
         <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M4 7h16M4 12h16M4 17h16" /></svg>
         {s && !s.isLoading ? "Menu · Sign in" : "Menu"}
       </button>

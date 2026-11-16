@@ -32,6 +32,7 @@ import type { Student } from "@/lib/roster/schema";
 import type { SheetRef } from "@/lib/roster/reconcile";
 import type { Roster } from "@/lib/roster/schema";
 import { buildScanRosterChecklist, type RollChecklistStatus } from "@/lib/scan-roster";
+import { formatScanAnnouncement } from "@/lib/scan-announcer";
 import ReviewCanvas from "./ReviewCanvas";
 
 interface Job {
@@ -69,6 +70,7 @@ export default function ScannerApp() {
   // ---- instant result banner, sound, auto-snap
   const [muted, setMuted] = useState(false);
   const [banner, setBanner] = useState<number | null>(null);
+  const [announcement, setAnnouncement] = useState("");
   const cloudKey = useRef<AnswerKey | null>(null);
   // A new scan is saved on this device at once, but its hand-off to the sync queue / cloud waits until the
   // teacher keeps it (Next / Inspect / dismiss), so "Erase Paper" can discard a bad scan cleanly.
@@ -182,6 +184,15 @@ export default function ScannerApp() {
       patchJob(id, { status: "done", result, preview, instant });
       setBanner(id);
       playChime("success");
+      const matchedName = activeRoster?.students.find((st) => st.rollNumber === instant.rollNumber)?.name ?? null;
+      setAnnouncement(formatScanAnnouncement({
+        status: "done",
+        rollNumber: instant.rollNumber,
+        studentName: matchedName,
+        scoreText: instant.keyed ? instant.scoreText : null,
+        flaggedCount: result.fields.conflicts.length,
+        calibration,
+      }));
       if (calibration) return;     // benchmarking only: nothing reaches the gradebook or the cloud
       // hand the result to the gradebook (IndexedDB) and queue it for sync (outbox)
       const { deviceId, teacherId } = identity();
@@ -212,8 +223,9 @@ export default function ScannerApp() {
     } catch (e) {
       patchJob(id, { status: "error", error: e as VisionErrorPayload });
       playChime("warn");
+      setAnnouncement(formatScanAnnouncement({ status: "error", errorMessage: (e as VisionErrorPayload)?.message }));
     }
-  }, [patchJob, session]);
+  }, [patchJob, session, activeRoster]);
 
   async function eraseJob(id: number) {
     const j = jobs.find((x) => x.id === id);
@@ -266,11 +278,11 @@ export default function ScannerApp() {
   );
   const queue = queueSummary(jobs);
   const proceed = queue.canProceed ? (
-    <Link href="/grade" data-testid="proceed-to-grade" className="v-btn v-btn-primary min-h-10 px-4">Proceed to Grade ({queue.scanned} sheet{queue.scanned === 1 ? "" : "s"}) →</Link>
+    <Link href="/grade" data-testid="proceed-to-grade" className="v-btn v-btn-primary min-h-10 [@media(pointer:coarse)]:min-h-11 px-4">Proceed to Grade ({queue.scanned} sheet{queue.scanned === 1 ? "" : "s"}) →</Link>
   ) : (
-    <button type="button" disabled data-testid="proceed-to-grade" title="Scan a sheet first, or wait for scanning to finish" className="v-btn v-btn-primary min-h-10 px-4">Proceed to Grade →</button>
+    <button type="button" disabled data-testid="proceed-to-grade" title="Scan a sheet first, or wait for scanning to finish" className="v-btn v-btn-primary min-h-10 [@media(pointer:coarse)]:min-h-11 px-4">Proceed to Grade →</button>
   );
-  const toggleRow = "flex min-h-10 w-full items-center justify-between rounded-lg border border-[var(--border)] px-4 py-2 text-sm";
+  const toggleRow = "flex min-h-10 [@media(pointer:coarse)]:min-h-11 w-full items-center justify-between rounded-lg border border-[var(--border)] px-4 py-2 text-sm";
   const sw = (on: boolean) => <span className={`inline-block h-4 w-8 rounded-full p-0.5 transition ${on ? "bg-emerald-500" : "bg-zinc-300 dark:bg-zinc-600"}`}><span className={`block size-3 rounded-full bg-white transition ${on ? "translate-x-4" : ""}`} /></span>;
 
   return (
@@ -343,7 +355,7 @@ export default function ScannerApp() {
             </div>
 
             <details key={jobs.length > 0 ? "after-first-scan" : "first-scan"} open={jobs.length === 0} className="v-panel bg-gold-tint" data-testid="scan-tips">
-              <summary className="cursor-pointer px-4 py-2 text-sm font-semibold">Scanning tips</summary>
+              <summary className="cursor-pointer px-4 py-2 [@media(pointer:coarse)]:flex [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:items-center text-sm font-semibold">Scanning tips</summary>
               <ul className="list-disc space-y-1 border-t border-[var(--border)] py-4 pl-8 pr-4 text-xs text-zinc-600 dark:text-zinc-300">
                 <li>Lay the sheet flat and fill the frame, with all 4 corner squares visible.</li>
                 <li>Use even light: avoid shadows and glare across the page.</li>
@@ -353,7 +365,7 @@ export default function ScannerApp() {
             </details>
 
             <details className="v-panel" data-testid="advanced-scanner">
-              <summary className="cursor-pointer px-4 py-2 text-sm font-medium">Advanced Scanner Settings</summary>
+              <summary className="cursor-pointer px-4 py-2 [@media(pointer:coarse)]:flex [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:items-center text-sm font-medium">Advanced Scanner Settings</summary>
               <div className="space-y-4 border-t border-[var(--border)] p-4">
                 <label className="v-btn cursor-pointer">
                   Load template JSON
@@ -389,7 +401,7 @@ export default function ScannerApp() {
                   <span className="text-zinc-500">({checklist.rosterName})</span>
                   {checklist.missing.length > 0 ? (
                     <button type="button" onClick={() => setShowMissing((v) => !v)} data-testid="toggle-missing-roster"
-                      className="ml-auto font-medium text-[var(--brand)] hover:underline">
+                      className="ml-auto [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:px-2 font-medium text-[var(--brand)] hover:underline">
                       {showMissing ? "Hide missing" : `Missing (${checklist.missing.length})`}
                     </button>
                   ) : (
@@ -440,7 +452,7 @@ export default function ScannerApp() {
                     : null;
                   return (
                     <li key={j.id}>
-                      <button type="button" onClick={() => setSelected(j.id)} className={`flex min-h-10 w-full items-center gap-2 px-6 py-2 text-left text-sm ${selected === j.id ? "bg-indigo-50 dark:bg-indigo-500/10" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"}`}>
+                      <button type="button" onClick={() => setSelected(j.id)} className={`flex min-h-10 [@media(pointer:coarse)]:min-h-11 w-full items-center gap-2 px-6 py-2 text-left text-sm ${selected === j.id ? "bg-indigo-50 dark:bg-indigo-500/10" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"}`}>
                         <span className="min-w-0 flex-1 truncate">{j.name}</span>
                         <JobBadge job={j} rollStatus={rollStatus} />
                       </button>
@@ -458,6 +470,7 @@ export default function ScannerApp() {
           </section>
         )}
       </div>
+      <div className="sr-only" aria-live="polite" aria-atomic="true" data-testid="scan-live-announcer">{announcement}</div>
       {session && (
         <>
           <CloudKey onKey={(k) => { cloudKey.current = k; }} />
@@ -856,7 +869,7 @@ function InstantBanner({ job, roster, canChange, onErase, onChangeStudent, onNex
             {stat("Multiple marks", r.doubleMarked, "instant-multiple")}
             <span className="sr-only" data-testid="instant-flagged">{r.flagged}</span>
           </div>
-          <button type="button" onClick={onClose} aria-label="Dismiss result" className="ml-auto self-start rounded px-2 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800">×</button>
+          <button type="button" onClick={onClose} aria-label="Dismiss result" className="ml-auto self-start rounded px-2 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800">×</button>
         </div>
         {!r.keyed && <p className="border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500 dark:border-zinc-800">Set the answer key on the Grade page and every scanned sheet is scored instantly.</p>}
         {roster && !student && roll && <p className="border-t border-zinc-100 px-4 py-2 text-xs text-amber-700 dark:border-zinc-800 dark:text-amber-300" data-testid="instant-unregistered">This ID is not on the class list.{canChange ? " Use Change student if it was misread." : ""}</p>}
@@ -878,10 +891,10 @@ function InstantBanner({ job, roster, canChange, onErase, onChangeStudent, onNex
           </div>
         )}
         <div className="flex flex-wrap gap-2 border-t border-zinc-100 p-3 dark:border-zinc-800">
-          <button type="button" autoFocus={!picking} onClick={onNext} className={`${btn} min-h-10 flex-1 bg-indigo-600 py-2 text-white hover:bg-indigo-700`}>Scan Next Sheet</button>
-          <button type="button" onClick={onInspect} className={`${btn} min-h-10 flex-1 border border-zinc-300 py-2 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}>Inspect Paper</button>
-          {canChange && <button type="button" data-testid="change-student" aria-expanded={picking} onClick={() => setPicking((v) => !v)} className={`${btn} min-h-10 border border-zinc-300 py-2 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}>Change student</button>}
-          <button type="button" data-testid="erase-paper" onClick={onErase} title="Throw this scan away: it is removed from this device and is never queued or uploaded" className={`${btn} min-h-10 border border-red-300 py-2 text-red-700 hover:bg-red-50 dark:border-red-500/40 dark:text-red-300 dark:hover:bg-red-500/10`}>Erase paper</button>
+          <button type="button" autoFocus={!picking} onClick={onNext} className={`${btn} min-h-10 [@media(pointer:coarse)]:min-h-11 flex-1 bg-indigo-600 py-2 text-white hover:bg-indigo-700`}>Scan Next Sheet</button>
+          <button type="button" onClick={onInspect} className={`${btn} min-h-10 [@media(pointer:coarse)]:min-h-11 flex-1 border border-zinc-300 py-2 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}>Inspect Paper</button>
+          {canChange && <button type="button" data-testid="change-student" aria-expanded={picking} onClick={() => setPicking((v) => !v)} className={`${btn} min-h-10 [@media(pointer:coarse)]:min-h-11 border border-zinc-300 py-2 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900`}>Change student</button>}
+          <button type="button" data-testid="erase-paper" onClick={onErase} title="Throw this scan away: it is removed from this device and is never queued or uploaded" className={`${btn} min-h-10 [@media(pointer:coarse)]:min-h-11 border border-red-300 py-2 text-red-700 hover:bg-red-50 dark:border-red-500/40 dark:text-red-300 dark:hover:bg-red-500/10`}>Erase paper</button>
         </div>
       </div>
     </div>
