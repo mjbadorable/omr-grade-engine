@@ -1,7 +1,16 @@
 @import "tailwindcss";
 
-/* Dark mode follows data-theme on <html> (set before first paint by the inline script in layout.tsx). */
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+/* Dark mode follows data-theme on <html>, with OS prefers-color-scheme fallback when data-theme is unset. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme]), :root:not([data-theme]) *) {
+      @slot;
+    }
+  }
+}
 
 /*
  * VERITAS design system: Augustinian Crimson & Gold.
@@ -42,6 +51,12 @@
   --ok-text: #047857;
   --warn-color: #d97706;
   --warn-text: #b45309;
+  --panel-border: rgba(255, 255, 255, 0.85);
+  --panel-bg: rgba(255, 255, 255, 0.78);
+  --panel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(20, 21, 26, 0.04), 0 10px 28px -8px rgba(20, 21, 26, 0.09), 0 2px 6px rgba(20, 21, 26, 0.04);
+  --tile-glass-border: rgba(142, 27, 32, 0.1);
+  --tile-glass-bg: rgba(253, 242, 242, 0.72);
+  --tile-glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 6px 18px -8px rgba(20, 21, 26, 0.12);
   /* semantic token aliases */
   --bg-canvas: var(--bg);
   --bg-surface: var(--surface);
@@ -71,6 +86,12 @@
   --rail-border: rgba(255, 255, 255, 0.1);
   --ok-text: #6ee7b7;
   --warn-text: #fcd34d;
+  --panel-border: rgba(255, 255, 255, 0.09);
+  --panel-bg: rgba(22, 24, 31, 0.82);
+  --panel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 12px 30px -8px rgba(0, 0, 0, 0.45);
+  --tile-glass-border: rgba(255, 255, 255, 0.09);
+  --tile-glass-bg: rgba(224, 62, 69, 0.08);
+  --tile-glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 20px -8px rgba(0, 0, 0, 0.45);
 }
 /* no-JS fallback: follow the OS */
 @media (prefers-color-scheme: dark) {
@@ -79,9 +100,15 @@
     --bg: #0d0e12; --surface: #16181f; --border: #262934; --fg: #f4f5f7; --muted: #9ba1b0;
     --brand: #e03e45; --brand-hover: #ef535a; --brand-tint: rgba(224, 62, 69, 0.14);
     --gold: #f0b429; --gold-hover: #f5c451; --gold-tint: rgba(240, 180, 41, 0.14);
+    --brand-soft: rgba(224, 62, 69, 0.4); --brand-text-on-tint: #f5a3a7;
     --rail: #2b0a0c; --rail-border: rgba(255, 255, 255, 0.1);
     --rail-bg: linear-gradient(180deg, #3a0b10 0%, #26070a 100%);
     --canvas-wash: radial-gradient(900px 500px at 15% 0%, rgba(224, 62, 69, 0.06), transparent 60%);
+    --ok-text: #6ee7b7; --warn-text: #fcd34d;
+    --panel-border: rgba(255, 255, 255, 0.09); --panel-bg: rgba(22, 24, 31, 0.82);
+    --panel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 12px 30px -8px rgba(0, 0, 0, 0.45);
+    --tile-glass-border: rgba(255, 255, 255, 0.09); --tile-glass-bg: rgba(224, 62, 69, 0.08);
+    --tile-glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 20px -8px rgba(0, 0, 0, 0.45);
   }
 }
 
@@ -173,14 +200,10 @@ body {
   .v-badge-warn { background: color-mix(in srgb, var(--warn-color) 16%, transparent); color: var(--warn-text); }
   /* crystal surface: translucent shell, beveled edge, soft elevation. Text, tables and inputs inside stay opaque. */
   .v-panel {
-    border: 1px solid rgba(255, 255, 255, 0.85); border-radius: 1rem;
-    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid var(--panel-border); border-radius: 1rem;
+    background: var(--panel-bg);
     -webkit-backdrop-filter: blur(14px) saturate(125%); backdrop-filter: blur(14px) saturate(125%);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), inset 0 -1px 0 rgba(20, 21, 26, 0.04), 0 10px 28px -8px rgba(20, 21, 26, 0.09), 0 2px 6px rgba(20, 21, 26, 0.04);
-  }
-  :root[data-theme="dark"] .v-panel {
-    border-color: rgba(255, 255, 255, 0.09); background: rgba(22, 24, 31, 0.82);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 12px 30px -8px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--panel-shadow);
   }
   /* burgundy rail: vertical depth and a specular right-hand hairline */
   .v-rail { background-image: var(--rail-bg); box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.12), 4px 0 24px rgba(20, 10, 12, 0.14); }
@@ -197,13 +220,9 @@ body {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 10px 24px -6px rgba(142, 27, 32, 0.38);
   }
   .v-tile-glass {
-    border: 1px solid rgba(142, 27, 32, 0.1); background: rgba(253, 242, 242, 0.72);
+    border: 1px solid var(--tile-glass-border); background: var(--tile-glass-bg);
     -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 6px 18px -8px rgba(20, 21, 26, 0.12);
-  }
-  :root[data-theme="dark"] .v-tile-glass {
-    border-color: rgba(255, 255, 255, 0.09); background: rgba(224, 62, 69, 0.08);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 20px -8px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--tile-glass-shadow);
   }
   .v-table { width: 100%; text-align: left; font-size: 0.875rem; }
   .v-table thead { background: var(--bg); color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }

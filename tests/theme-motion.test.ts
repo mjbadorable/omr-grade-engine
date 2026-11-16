@@ -27,6 +27,15 @@ describe("Option 1 editorial-slop-guard tokens & motion", () => {
     expect(THEME_INIT_SCRIPT).toContain("data-motion");
   });
 
+  it("defines panel/tile dark tokens even in the :not([data-theme]) OS dark fallback", () => {
+    const fallbackIdx = css.indexOf(":root:not([data-theme]) {");
+    expect(fallbackIdx).toBeGreaterThan(-1);
+    const fallbackBlock = css.slice(fallbackIdx, css.indexOf("}", fallbackIdx));
+    expect(fallbackBlock).toContain("--panel-bg:");
+    expect(fallbackBlock).toContain("--tile-glass-bg:");
+    expect(fallbackBlock).toContain("--ok-text:");
+  });
+
   it("has no banned from-indigo- gradients or animate-pulse in src/components", () => {
     for (const file of walkTsx(join(process.cwd(), "src/components"))) {
       const src = readFileSync(file, "utf8");
