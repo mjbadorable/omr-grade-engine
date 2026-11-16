@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReviewCanvas from "@/components/scanner/ReviewCanvas";
 import { paperBubbles, type BubbleVisual } from "@/lib/grading/paper-review";
+import { firstUncertainQuestion, isEditableInputTarget, queuePosition } from "@/lib/grading/review-queue";
 import type { AnswerKey, ScoredSheet } from "@/lib/grading/types";
 import { describePatch, effectivePatches, makePatch, type ManualOverridePatch } from "@/lib/review/overrides";
 import type { Student } from "@/lib/roster/schema";
@@ -28,19 +29,28 @@ export interface ReviewModalProps {
   answerKey: AnswerKey;
   student: Student | null;
   teacherId: string;
+  flaggedIds?: readonly string[];
+  onSelectSheet?: (sheetId: string) => void;
   onPatches: (patches: ManualOverridePatch[]) => void;
   onScorecard: () => void;
   onClose: () => void;
 }
 
-export default function ReviewModal({ sheet, scan, rawFields, patches, answerKey, student, teacherId, onPatches, onScorecard, onClose }: ReviewModalProps) {
+export default function ReviewModal({ sheet, scan, rawFields, patches, answerKey, student, teacherId, flaggedIds = [], onSelectSheet, onPatches, onScorecard, onClose }: ReviewModalProps) {
   const [bmp, setBmp] = useState<ImageBitmap | null>(null);
   const [draft, setDraft] = useState<Map<number, number[]>>(new Map());
   const [roll, setRoll] = useState(sheet.rollNumber ?? "");
   const [set, setSet] = useState(sheet.examSet ?? "");
   const [reason, setReason] = useState("Verified against the paper sheet");
   const closeRef = useRef<HTMLButtonElement>(null);
-  const [pane, setPane] = useState<"paper" | "edit">("paper");
+  const firstUncertain = useMemo(() => firstUncertainQuestion(sheet.items), [sheet.items]);
+  const choiceQuestions = useMemo(
+    () => sheet.items.filter((i) => answerKey.questions.get(i.questionNumber)?.type === "choice").map((i) => i.printedNumber),
+    [sheet.items, answerKey],
+  );
+  const [pane, setPane] = useState<"paper" | "edit">(firstUncertain !== null ? "edit" : "paper");
+  const [focusedQ, setFocusedQ] = useState<number | null>(firstUncertain ?? choiceQuestions[0] ?? null);
+  const qPos = useMemo(() => queuePosition(flaggedIds, sheet.sheetId), [flaggedIds, sheet.sheetId]);
 
   useEffect(() => {
     let alive = true;
@@ -51,10 +61,14 @@ export default function ReviewModal({ sheet, scan, rawFields, patches, answerKey
 
   useEffect(() => {
     closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, []);
+
+  useEffect(() => {
+    if (firstUncertain !== null) {
+      const row = document.querySelector(`[data-review-q="${firstUncertain}"]`);
+      row?.scrollIntoView({ block: "center" });
+    }
+  }, [firstUncertain]);
 
   const confidence = useMemo(() => {
     const m = new Map<number, number>();
@@ -70,7 +84,7 @@ export default function ReviewModal({ sheet, scan, rawFields, patches, answerKey
     return makePatch({ sheetId: sheet.sheetId, target, questionNumber, originalState, overriddenOption, reason: reason.trim(), teacherId });
   }
 
-  function saveAll() {
+  const saveAll = useCallback(() => {
     const out: ManualOverridePatch[] = [];
     for (const [q, marked] of draft) {
       const r = rawAnswer.get(q);
@@ -80,9 +94,52 @@ export default function ReviewModal({ sheet, scan, rawFields, patches, answerKey
     if (set !== (sheet.examSet ?? "")) out.push(base("set", 0, { value: rawFields.examSet }, set));
     if (out.length) onPatches(out);
     setDraft(new Map());
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft, roll, set, reason, sheet.rollNumber, sheet.examSet, rawFields.rollNumber, rawFields.examSet, rawAnswer, onPatches]);
 
   const pendingChanges = draft.size + (roll.trim() && roll.trim() !== (sheet.rollNumber ?? "") ? 1 : 0) + (set !== (sheet.examSet ?? "") ? 1 : 0);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { onClose(); return; }
+      if (e.metaKey || e.ctrlKey || e.altKey || isEditableInputTarget(e.target)) return;
+      if (e.key === "[" && qPos.prevId && onSelectSheet) { e.preventDefault(); onSelectSheet(qPos.prevId); return; }
+      if (e.key === "]" && qPos.nextId && onSelectSheet) { e.preventDefault(); onSelectSheet(qPos.nextId); return; }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        if (!choiceQuestions.length) return;
+        e.preventDefault();
+        setPane("edit");
+        setFocusedQ((cur) => {
+          const idx = cur !== null ? choiceQuestions.indexOf(cur) : -1;
+          const next = e.key === "ArrowDown" ? Math.min(choiceQuestions.length - 1, idx + 1) : Math.max(0, idx <= 0 ? 0 : idx - 1);
+          return choiceQuestions[next];
+        });
+        return;
+      }
+      if (/^[1-6]$/.test(e.key) && focusedQ !== null) {
+        const item = sheet.items.find((x) => x.printedNumber === focusedQ);
+        const rule = item ? answerKey.questions.get(item.questionNumber) : null;
+        const opt = Number(e.key) - 1;
+        if (rule?.type === "choice" && opt < rule.optionCount) {
+          e.preventDefault();
+          setPane("edit");
+          const raw = rawAnswer.get(focusedQ);
+          const ov = active.has(`answer:${focusedQ}`);
+          const cur = draft.get(focusedQ) ?? (ov ? (active.get(`answer:${focusedQ}`)!.overriddenOption as number[]) : raw?.marked ?? []);
+          const has = cur.includes(opt);
+          setDraft((d) => new Map(d).set(focusedQ, has ? cur.filter((x) => x !== opt) : [...cur, opt].sort()));
+        }
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (pendingChanges && reason.trim()) saveAll();
+        if (qPos.nextId && onSelectSheet) onSelectSheet(qPos.nextId);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, qPos.prevId, qPos.nextId, onSelectSheet, choiceQuestions, focusedQ, sheet.items, answerKey.questions, rawAnswer, active, draft, pendingChanges, reason, saveAll]);
 
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/40 p-2 sm:p-6" onClick={onClose}>
@@ -92,7 +149,22 @@ export default function ReviewModal({ sheet, scan, rawFields, patches, answerKey
           <h2 className="text-lg font-semibold">{student?.name ?? "Unregistered student"}</h2>
           <span className="text-sm text-zinc-500">Roll {sheet.rollNumber ?? "unreadable"} · Set {sheet.examSet ?? "–"} · {sheet.totalScore}/{sheet.maxScore} ({sheet.percentage.toFixed(1)} %) · grade {sheet.grade ?? "–"} · key v{sheet.keyVersion}</span>
           {sheet.sheetFlags.length > 0 && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">{sheet.sheetFlags.join(", ")}</span>}
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {qPos.total > 0 && onSelectSheet && (
+              <div className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs dark:border-zinc-800 dark:bg-zinc-900" data-testid="review-queue-nav">
+                <span className="font-mono font-medium text-zinc-600 dark:text-zinc-300">
+                  {qPos.position !== null ? `${qPos.position} of ${qPos.total} to review` : `${qPos.total} to review`}
+                </span>
+                <button type="button" disabled={!qPos.prevId} onClick={() => qPos.prevId && onSelectSheet(qPos.prevId)}
+                  className="rounded px-1.5 py-0.5 font-medium hover:bg-zinc-200 disabled:opacity-35 dark:hover:bg-zinc-800" title="Previous flagged ([)">
+                  ← Prev flagged
+                </button>
+                <button type="button" disabled={!qPos.nextId} onClick={() => qPos.nextId && onSelectSheet(qPos.nextId)}
+                  className="rounded px-1.5 py-0.5 font-medium hover:bg-zinc-200 disabled:opacity-35 dark:hover:bg-zinc-800" title="Next flagged (])">
+                  Next flagged →
+                </button>
+              </div>
+            )}
             <button type="button" onClick={onScorecard} className="rounded-md border border-zinc-300 px-2.5 py-1 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900">Scorecard PDF</button>
             <button ref={closeRef} type="button" onClick={onClose} className="rounded-md px-2 py-1 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="Close">✕</button>
           </div>
@@ -113,6 +185,13 @@ export default function ReviewModal({ sheet, scan, rawFields, patches, answerKey
             className="rounded-md bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-700 disabled:opacity-40">
             Save {pendingChanges || ""} change{pendingChanges === 1 ? "" : "s"}
           </button>
+          {qPos.nextId && onSelectSheet && (
+            <button type="button" disabled={!reason.trim() && pendingChanges > 0}
+              onClick={() => { if (pendingChanges) saveAll(); onSelectSheet(qPos.nextId!); }}
+              className="rounded-md border border-[var(--brand)] px-3 py-1.5 font-medium text-[var(--brand)] hover:bg-[var(--brand-tint)] disabled:opacity-40">
+              {pendingChanges ? "Save & next →" : "Skip to next →"}
+            </button>
+          )}
           {draft.size > 0 && <button type="button" className="text-sm text-zinc-500 underline" onClick={() => setDraft(new Map())}>discard</button>}
         </div>
 
@@ -143,17 +222,19 @@ export default function ReviewModal({ sheet, scan, rawFields, patches, answerKey
                   const overridden = active.has(`answer:${i.printedNumber}`);
                   const currentPrinted = draft.get(i.printedNumber) ?? (overridden ? (active.get(`answer:${i.printedNumber}`)!.overriddenOption as number[]) : effective?.marked ?? []);
                   return (
-                    <tr key={i.questionNumber} className={`border-t border-zinc-100 dark:border-zinc-800 ${i.status === "FLAGGED_CONFLICT" ? "bg-amber-50/70 dark:bg-amber-500/5" : ""}`}>
-                      <td className="py-1 pr-3 font-mono">{i.questionNumber}{i.printedNumber !== i.questionNumber && <span className="text-xs text-zinc-400"> ({i.printedNumber})</span>}</td>
+                    <tr key={i.questionNumber} data-review-q={i.printedNumber}
+                      onClick={() => editable && setFocusedQ(i.printedNumber)}
+                      className={`border-t border-zinc-100 dark:border-zinc-800 ${focusedQ === i.printedNumber ? "ring-1 ring-inset ring-[var(--gold)] bg-amber-50/40 dark:bg-amber-500/10" : i.status === "FLAGGED_CONFLICT" ? "bg-amber-50/70 dark:bg-amber-500/5" : ""}`}>
+                      <td className="py-1.5 pr-3 font-mono">{i.questionNumber}{i.printedNumber !== i.questionNumber && <span className="text-xs text-zinc-400"> ({i.printedNumber})</span>}</td>
                       <td className="pr-3">
                         {editable ? (
-                          <div className="flex items-center gap-1" role="group" aria-label={`Marks for question ${i.questionNumber}`}>
+                          <div className="flex flex-wrap items-center gap-1.5 sm:gap-1" role="group" aria-label={`Marks for question ${i.questionNumber}`}>
                             {Array.from({ length: rule.optionCount }, (_, o) => {
                               const on = currentPrinted.includes(o);
                               return (
                                 <button key={o} type="button" aria-pressed={on}
-                                  onClick={() => setDraft((d) => new Map(d).set(i.printedNumber, on ? currentPrinted.filter((x) => x !== o) : [...currentPrinted, o].sort()))}
-                                  className={`size-6 rounded-full border text-[11px] font-semibold ${on ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900" : "border-zinc-300 text-zinc-500 hover:border-zinc-500 dark:border-zinc-600"}`}>
+                                  onClick={() => { setFocusedQ(i.printedNumber); setDraft((d) => new Map(d).set(i.printedNumber, on ? currentPrinted.filter((x) => x !== o) : [...currentPrinted, o].sort())); }}
+                                  className={`size-9 sm:size-6 [@media(pointer:coarse)]:size-11 rounded-full border text-xs sm:text-[11px] font-semibold ${on ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900" : "border-zinc-300 text-zinc-500 hover:border-zinc-500 dark:border-zinc-600"}`}>
                                   {L(o)}
                                 </button>
                               );
@@ -178,6 +259,7 @@ export default function ReviewModal({ sheet, scan, rawFields, patches, answerKey
               </tbody>
             </table>
             <p className="mt-2 text-xs text-zinc-500">Marks are shown in printed order. Corrections never change the stored scan; each one is an audit-logged patch and the score updates instantly.</p>
+            <p className="mt-1 text-[11px] text-zinc-400">Shortcuts: <kbd className="font-mono">[</kbd> / <kbd className="font-mono">]</kbd> prev/next flagged · <kbd className="font-mono">↑</kbd>/<kbd className="font-mono">↓</kbd> question · <kbd className="font-mono">1</kbd>–<kbd className="font-mono">6</kbd> toggle bubble · <kbd className="font-mono">Enter</kbd> save &amp; next · <kbd className="font-mono">Esc</kbd> close</p>
           </div>
         </div>
       </div>

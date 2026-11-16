@@ -16,6 +16,7 @@ import { computeClassStanding } from "@/lib/export/standing";
 import { keyFromScannedAnswers, keyFromTemplate, parseKey, serializeKey, updateKey } from "@/lib/grading/answer-key";
 import { gradebookRows, toCsv, toWorkbook } from "@/lib/grading/export";
 import { analyzeItems } from "@/lib/grading/item-analysis";
+import { flaggedQueue } from "@/lib/grading/review-queue";
 import { rescoreBatch } from "@/lib/grading/scorer";
 import { mulberry32, simulateClass } from "@/lib/grading/simulate";
 import type { AnswerKey, ChoiceRule, ScanInput, ScoredSheet } from "@/lib/grading/types";
@@ -379,6 +380,7 @@ export default function GradeApp() {
     );
   }
 
+  const flaggedIds = flaggedQueue(graded?.sheets ?? []);
   const openSheet = openId ? graded?.sheets.find((s) => s.sheetId === openId) ?? null : null;
   const openSource = openId ? sourceById.get(openId) ?? null : null;
   const keyed = [...key.questions.values()].filter((r) => (r.type === "choice" ? r.correct.length : r.type === "numeric" ? r.value !== null : true)).length;
@@ -504,8 +506,9 @@ export default function GradeApp() {
       </div>
 
       {openSheet && openSource && (
-        <ReviewModal sheet={openSheet} scan={openSource.stored ?? cloudDetail.get(openSheet.sheetId) ?? null} rawFields={openSource.raw} patches={patchesBySheet.get(openSheet.sheetId) ?? []}
+        <ReviewModal key={openSheet.sheetId} sheet={openSheet} scan={openSource.stored ?? cloudDetail.get(openSheet.sheetId) ?? null} rawFields={openSource.raw} patches={patchesBySheet.get(openSheet.sheetId) ?? []}
           answerKey={key} student={recon.studentBySheet.get(openSheet.sheetId) ?? null} teacherId={who.teacherId}
+          flaggedIds={flaggedIds} onSelectSheet={setOpenId}
           onPatches={addPatches} onScorecard={() => scorecards(openSheet.sheetId)} onClose={() => setOpenId(null)} />
       )}
       {openId && !openSheet && openSource && (
