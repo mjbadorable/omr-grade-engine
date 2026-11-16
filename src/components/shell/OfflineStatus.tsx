@@ -1,7 +1,7 @@
 "use client";
 /**
  * Registers the offline service worker in production, tracks whether OpenCV + shell are cached
- * ("Ready to scan offline"), and offers a 1-click reload when a new version is waiting.
+ * ("Online" when cached and connected, "Offline" when disconnected), and offers a 1-click reload when a new version is waiting.
  */
 import { useEffect, useState } from "react";
 
@@ -90,7 +90,7 @@ export default function OfflineStatus() {
         title={offlineReady ? "Scanner engine & routes are cached on this device" : "Working offline"}
       >
         <span className={`size-1.5 rounded-full ${!online ? "bg-amber-500" : "bg-emerald-500"}`} aria-hidden />
-        {!online ? "Offline" : "Ready to scan offline"}
+        {!online ? "Offline" : "Online"}
       </span>
     );
   }

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { activeNav, breadcrumb, parseAdminView, parseGradeTab, shellNav } from "@/lib/shell-nav";
 
@@ -26,6 +28,12 @@ describe("shellNav", () => {
       ["audit", "Audit Trail", "/admin?view=audit"],
       ["policy", "Policy & Grading", "/admin?view=policy"],
     ]);
+  });
+
+  it("renders the sidebar Admin section label", () => {
+    const rail = readFileSync(join(process.cwd(), "src/components/shell/Rail.tsx"), "utf8");
+    expect(rail).toContain('<Icon id="admin" />Admin');
+    expect(rail).not.toContain('<Icon id="admin" />Administration');
   });
 });
 

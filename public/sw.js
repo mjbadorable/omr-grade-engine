@@ -4,7 +4,7 @@
  * chunks (such as the OMR scanner worker), and the 9.9 MB OpenCV file so classroom
  * scanning works without Wi-Fi. Clerk, Convex, and non-GET requests stay network-only.
  */
-const CACHE_NAME = "veritas-offline-v3";
+const CACHE_NAME = "veritas-offline-v4";
 const ROUTE_URLS = ["/", "/designer", "/scan", "/grade", "/admin"];
 const PRECACHE_URLS = [
   ...ROUTE_URLS,

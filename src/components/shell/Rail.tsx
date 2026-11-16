@@ -56,7 +56,7 @@ function RailLinks({ role, orgId, path, search, onNavigate }: { role: Role | nul
       {admin && (
         <div className="mt-6 space-y-2" data-testid="rail-admin">
           <p className="flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase leading-6 tracking-wider text-[var(--rail-muted)]" data-testid="rail-admin-root">
-            <Icon id="admin" />Administration
+            <Icon id="admin" />Admin
           </p>
           <ul className="space-y-2">
             {admin.map((a) => {

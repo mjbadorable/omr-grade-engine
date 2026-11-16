@@ -30,6 +30,12 @@ describe("Phase C: Offline PWA & cache headers", () => {
     expect(sw).toContain("/manifest.webmanifest");
     expect(sw).toContain("origin !== self.location.origin");
   });
+
+  it("labels the status badge Online when connected and Offline when disconnected", () => {
+    const src = readFileSync(join(process.cwd(), "src/components/shell/OfflineStatus.tsx"), "utf8");
+    expect(src).toContain('{!online ? "Offline" : "Online"}');
+    expect(src).not.toContain("Ready to scan offline");
+  });
 });
 
 describe("Phase D: Scan screen-reader announcements", () => {
