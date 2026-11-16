@@ -20,15 +20,19 @@ import { readStoredKey, readStoredTemplate, writeStoredTemplate } from "@/lib/st
 import type { ScanOutput } from "@/lib/vision/scan-sheet";
 import { ScannerClient } from "@/lib/vision/scanner-client";
 import type { CornerPoints, ScanTelemetry, VisionErrorPayload } from "@/lib/vision/types";
-import { bitmapToJpeg, putScan } from "@/lib/storage/scan-store";
+import { bitmapToJpeg, getMeta, listScans, putScan } from "@/lib/storage/scan-store";
 import { advise, buildDiagnosticExport, RING_STYLE, summarize } from "@/lib/vision/diagnostics";
 import { analyzeFrame, type FrameQuality, guidance, StabilityTracker, type StabilityState } from "@/lib/vision/frame-quality";
 import { DEFAULT_TUNING, isDefaultTuning, normalizeTuning, readStoredTuning, type ScanTuning, TUNING_LIMITS, TUNING_PRESETS, writeStoredTuning } from "@/lib/vision/tuning";
-import { identity, recordScan } from "@/lib/sync/local-sync";
+import { identity, recordScan, rosterMetaKey } from "@/lib/sync/local-sync";
+import type { SheetRef } from "@/lib/roster/reconcile";
+import type { Roster } from "@/lib/roster/schema";
+import { buildScanRosterChecklist, type RollChecklistStatus } from "@/lib/scan-roster";
 import ReviewCanvas from "./ReviewCanvas";
 
 interface Job {
   id: number;
+  sheetId?: string;
   name: string;
   status: "queued" | "scanning" | "done" | "error";
   stage?: string;
@@ -85,6 +89,45 @@ export default function ScannerApp() {
   // a selected cloud exam dictates the sheet layout being scanned
   useEffect(() => { if (cloudTemplate) setTemplate(cloudTemplate); }, [cloudTemplate]);
 
+  // ---- live roster checklist ("who's missing")
+  const [localRoster, setLocalRoster] = useState<Roster | null>(null);
+  const [localStoredScans, setLocalStoredScans] = useState<SheetRef[]>([]);
+  const [cloudRoster, setCloudRoster] = useState<Roster | null>(null);
+  const [cloudStoredScans, setCloudStoredScans] = useState<SheetRef[]>([]);
+  const [showMissing, setShowMissing] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    if (!template) {
+      setLocalRoster(null);
+      setLocalStoredScans([]);
+      return;
+    }
+    Promise.all([
+      getMeta<Roster>(rosterMetaKey(template.layoutHash)).catch(() => null),
+      listScans(template.layoutHash).catch(() => []),
+    ]).then(([r, scans]) => {
+      if (!live) return;
+      setLocalRoster(r ?? null);
+      setLocalStoredScans(scans.map((s) => ({ sheetId: s.sheetId, rollNumber: s.result.fields.rollNumber })));
+    });
+    return () => { live = false; };
+  }, [template]);
+
+  const useCloudRoster = !!(session?.isAuthenticated && session.me && session.selection.examId);
+  const activeRoster = useCloudRoster ? cloudRoster : localRoster;
+  const activeStoredScans = useCloudRoster ? cloudStoredScans : localStoredScans;
+  const checklist = useMemo(
+    () => buildScanRosterChecklist(
+      activeRoster,
+      activeStoredScans,
+      jobs
+        .filter((j) => j.status === "done" && j.result && !j.calibration)
+        .map((j) => ({ sheetId: j.sheetId ?? `job-${j.id}`, rollNumber: j.result!.fields.rollNumber, calibration: j.calibration })),
+    ),
+    [activeRoster, activeStoredScans, jobs],
+  );
+
   // ---- worker lifecycle
   useEffect(() => {
     const c = new ScannerClient();
@@ -118,8 +161,10 @@ export default function ScannerApp() {
       if (calibration) return;     // benchmarking only: nothing reaches the gradebook or the cloud
       // hand the result to the gradebook (IndexedDB) and queue it for sync (outbox)
       const { deviceId, teacherId } = identity();
+      const sheetId = crypto.randomUUID();
+      patchJob(id, { sheetId });
       const stored = {
-        sheetId: crypto.randomUUID(), layoutHash: result.layoutHash, templateId: result.templateId, name, createdAt: Date.now(),
+        sheetId, layoutHash: result.layoutHash, templateId: result.templateId, name, createdAt: Date.now(),
         result, preview: preview ? await bitmapToJpeg(preview) : null, deviceId, teacherId,
       };
       await putScan(stored).then(() => recordScan(stored)).catch(() => { /* storage unavailable: results stay on screen */ });
@@ -278,18 +323,73 @@ export default function ScannerApp() {
                 </p>
               )}
             </div>
+            {checklist && (
+              <div className="space-y-2 border-b border-[var(--border)] bg-zinc-50/60 px-6 py-3 text-xs dark:bg-zinc-900/40" data-testid="scan-roster-checklist">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                    <span className="v-mono">{checklist.scanned}</span> of <span className="v-mono">{checklist.total}</span> scanned
+                  </span>
+                  <span className="text-zinc-500">({checklist.rosterName})</span>
+                  {checklist.missing.length > 0 ? (
+                    <button type="button" onClick={() => setShowMissing((v) => !v)} data-testid="toggle-missing-roster"
+                      className="ml-auto font-medium text-[var(--brand)] hover:underline">
+                      {showMissing ? "Hide missing" : `Missing (${checklist.missing.length})`}
+                    </button>
+                  ) : (
+                    <span className="ml-auto v-badge v-badge-ok">All roster students scanned</span>
+                  )}
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800" aria-hidden>
+                  <div className="h-full rounded-full bg-[var(--brand)] transition-all" style={{ width: `${Math.min(100, Math.round((checklist.scanned / checklist.total) * 100))}%` }} />
+                </div>
+                {(checklist.duplicates.length > 0 || checklist.unregistered.length > 0 || checklist.unreadableCount > 0) && (
+                  <div className="flex flex-wrap gap-1.5 pt-0.5" data-testid="roster-advisories">
+                    {checklist.duplicates.map((d) => (
+                      <span key={`dup:${d.rollNumber}`} className="v-badge v-badge-warn">
+                        Duplicate: {d.rollNumber} ({d.name}) ×{d.count}
+                      </span>
+                    ))}
+                    {checklist.unregistered.map((u) => (
+                      <span key={`unreg:${u.rollNumber}`} className="v-badge v-badge-warn">
+                        Not on roster: {u.rollNumber}{u.count > 1 ? ` ×${u.count}` : ""}
+                      </span>
+                    ))}
+                    {checklist.unreadableCount > 0 && (
+                      <span className="v-badge bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300">
+                        {checklist.unreadableCount} unreadable roll{checklist.unreadableCount === 1 ? "" : "s"}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {showMissing && checklist.missing.length > 0 && (
+                  <ul className="max-h-36 space-y-1 overflow-y-auto rounded-lg border border-[var(--border)] bg-white p-2 dark:bg-zinc-950" data-testid="missing-roster-list">
+                    {checklist.missing.map((st) => (
+                      <li key={st.rollNumber} className="flex items-center justify-between gap-2 px-1 py-0.5">
+                        <span className="truncate font-medium text-zinc-800 dark:text-zinc-200">{st.name}</span>
+                        <span className="v-mono shrink-0 text-[11px] text-zinc-500">{st.rollNumber}{st.section ? ` · ${st.section}` : ""}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
             {jobs.length === 0 ? (
               <div className="p-8"><EmptyHero title="Scan an answer sheet">Upload photos or use the camera: scanned sheets are listed here.</EmptyHero></div>
             ) : (
               <ul className="max-h-[60vh] divide-y divide-[var(--border)] overflow-y-auto">
-                {jobs.map((j) => (
-                  <li key={j.id}>
-                    <button type="button" onClick={() => setSelected(j.id)} className={`flex min-h-10 w-full items-center gap-2 px-6 py-2 text-left text-sm ${selected === j.id ? "bg-indigo-50 dark:bg-indigo-500/10" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"}`}>
-                      <span className="min-w-0 flex-1 truncate">{j.name}</span>
-                      <JobBadge job={j} />
-                    </button>
-                  </li>
-                ))}
+                {jobs.map((j) => {
+                  const rollStatus: RollChecklistStatus | null = checklist && j.status === "done" && j.result && !j.calibration
+                    ? checklist.classifyRoll(j.result.fields.rollNumber)
+                    : null;
+                  return (
+                    <li key={j.id}>
+                      <button type="button" onClick={() => setSelected(j.id)} className={`flex min-h-10 w-full items-center gap-2 px-6 py-2 text-left text-sm ${selected === j.id ? "bg-indigo-50 dark:bg-indigo-500/10" : "hover:bg-zinc-50 dark:hover:bg-zinc-900"}`}>
+                        <span className="min-w-0 flex-1 truncate">{j.name}</span>
+                        <JobBadge job={j} rollStatus={rollStatus} />
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
@@ -301,7 +401,12 @@ export default function ScannerApp() {
           </section>
         )}
       </div>
-      {session && <CloudKey onKey={(k) => { cloudKey.current = k; }} />}
+      {session && (
+        <>
+          <CloudKey onKey={(k) => { cloudKey.current = k; }} />
+          <CloudRoster onRoster={setCloudRoster} onScans={setCloudStoredScans} />
+        </>
+      )}
       {banner !== null && (() => {
         const j = jobs.find((x) => x.id === banner);
         return j?.instant ? (
@@ -318,8 +423,17 @@ const CLOUD_LABEL: Record<NonNullable<Job["cloud"]>, string> = {
   uploading: "cloud …", stored: "cloud ✓", already_stored: "cloud ✓", duplicate_identical: "cloud ✓ (rescan)", conflict: "cloud: conflict", rejected: "cloud: wrong sheet", failed: "cloud: queued",
 };
 
-function JobBadge({ job }: { job: Job }) {
-  return <span className="flex items-center gap-1">{job.calibration && <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-medium text-sky-800 dark:bg-sky-500/15 dark:text-sky-300">calibration</span>}{job.cloud && <span data-testid="cloud-status" className={`text-[11px] ${job.cloud === "conflict" || job.cloud === "rejected" ? "text-amber-700" : job.cloud === "failed" ? "text-zinc-500" : "text-emerald-700"}`}>{CLOUD_LABEL[job.cloud]}</span>}<LocalBadge job={job} /></span>;
+function JobBadge({ job, rollStatus }: { job: Job; rollStatus?: RollChecklistStatus | null }) {
+  return (
+    <span className="flex items-center gap-1">
+      {job.calibration && <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-medium text-sky-800 dark:bg-sky-500/15 dark:text-sky-300">calibration</span>}
+      {rollStatus === "duplicate" && <span className="v-badge v-badge-warn !text-[11px]">Duplicate</span>}
+      {rollStatus === "unregistered" && <span className="v-badge v-badge-warn !text-[11px]">Not on roster</span>}
+      {rollStatus === "unreadable" && <span className="v-badge bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300 !text-[11px]">No roll</span>}
+      {job.cloud && <span data-testid="cloud-status" className={`text-[11px] ${job.cloud === "conflict" || job.cloud === "rejected" ? "text-amber-700" : job.cloud === "failed" ? "text-zinc-500" : "text-emerald-700"}`}>{CLOUD_LABEL[job.cloud]}</span>}
+      <LocalBadge job={job} />
+    </span>
+  );
 }
 
 const STATE_BADGE: Record<QueueStateId, string> = {
@@ -679,5 +793,18 @@ function CloudKey({ onKey }: { onKey: (k: AnswerKey | null) => void }) {
   useEffect(() => {
     onKey(doc && examId ? bodyToAnswerKey(doc, { examId, version: doc.version, layoutHash: session?.selection.layoutHash ?? undefined }) : null);
   }, [doc, examId, session?.selection.layoutHash, onKey]);
+  return null;
+}
+
+/** Live roster + existing scans of the selected cloud exam for the /scan checklist. */
+function CloudRoster({ onRoster, onScans }: { onRoster: (r: Roster | null) => void; onScans: (s: SheetRef[]) => void }) {
+  const session = useCloudSession();
+  const examId = session?.isAuthenticated && session.me ? session.selection.examId : null;
+  const roster = useQuery(api.exams.getRoster, examId ? { examId } : "skip");
+  const scans = useQuery(api.grading.listScans, examId ? { examId, paginationOpts: { numItems: 500, cursor: null } } : "skip");
+  useEffect(() => { onRoster(roster ?? null); }, [roster, onRoster]);
+  useEffect(() => {
+    onScans(scans?.page.map((s) => ({ sheetId: s._id, rollNumber: s.studentRollNumber })) ?? []);
+  }, [scans, onScans]);
   return null;
 }
