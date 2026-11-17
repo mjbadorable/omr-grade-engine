@@ -30,7 +30,14 @@ export default function OfflineStatus() {
 
     if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) {
       let refreshing = false;
+      // Only reload when replacing an existing active worker (not on first-ever claim),
+      // so deep links with query params or unsaved work aren't wiped mid-load.
+      let reloadOnControl = !!navigator.serviceWorker.controller;
       const onController = () => {
+        if (!reloadOnControl) {
+          reloadOnControl = true;
+          return;
+        }
         if (!refreshing) {
           refreshing = true;
           window.location.reload();

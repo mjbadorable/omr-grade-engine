@@ -13,7 +13,9 @@ import QuickPresets from "./QuickPresets";
 import { ExamDetailsFields, SheetSetupFields } from "./SettingsPanel";
 import { designerSteps } from "@/lib/omr/designer-steps";
 import type { Darkness, PerPage } from "@/lib/omr/print-options";
+import { decodeSharedForm, saveSheetForm } from "@/lib/omr/saved-forms";
 import ActiveExamBar from "@/components/shell/ActiveExamBar";
+import SavedFormsPanel from "./SavedFormsPanel";
 import SyllabusDropzone from "./SyllabusDropzone";
 import SheetPreview, { type PreviewOverlays } from "./SheetPreview";
 
@@ -27,12 +29,21 @@ function download(name: string, data: BlobPart, type: string) {
 }
 
 
+function clearFormParam() {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has("form")) return;
+  params.delete("form");
+  const qs = params.toString();
+  window.history.replaceState(null, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+}
+
 export default function SheetDesigner() {
   const [settings, setSettingsRaw] = useState<LayoutSettings>(DEFAULT_SETTINGS);
   // user edits (not the random id assigned after hydration) mean "a new exam is being designed"
   const edited = useRef(false);
   // every edit is brought into the supported range (2–6 choices, columns that fit) before it renders
-  const setSettings: typeof setSettingsRaw = (v) => { edited.current = true; setSettingsRaw(typeof v === "function" ? (cur) => normalizeSettings(v(cur)) : normalizeSettings(v)); };
+  const setSettings: typeof setSettingsRaw = (v) => { edited.current = true; clearFormParam(); setSettingsRaw(typeof v === "function" ? (cur) => normalizeSettings(v(cur)) : normalizeSettings(v)); };
   const [pageIndex, setPageIndex] = useState(0);
   const [overlays, setOverlays] = useState<PreviewOverlays>({ cells: false, bboxes: false });
   const [drawer, setDrawer] = useState<null | "json" | "issues">(null);
@@ -42,8 +53,25 @@ export default function SheetDesigner() {
   const [darkness, setDarkness] = useState<Darkness>("standard");
   const [pngBusy, setPngBusy] = useState(false);
 
-  // Stable random template id, assigned after hydration (keeps SSR output deterministic).
+  const [sharedBanner, setSharedBanner] = useState<{ kind: "ok" | "warn"; name?: string; saved?: boolean; error?: string } | null>(null);
+
+  // Stable random template id + optional shared `?form=` import after hydration (keeps SSR output deterministic).
   useEffect(() => {
+    const rawForm = new URLSearchParams(window.location.search).get("form");
+    const decoded = rawForm ? decodeSharedForm(rawForm) : null;
+    if (decoded) {
+      edited.current = true;
+      setSettingsRaw((s) => normalizeSettings({
+        ...decoded.settings,
+        templateId: s.templateId === "tpl-draft" ? `tpl-${crypto.randomUUID().slice(0, 8)}` : s.templateId,
+      }));
+      setSharedBanner({ kind: "ok", name: decoded.name });
+      return;
+    }
+    if (rawForm) {
+      setSharedBanner({ kind: "warn" });
+      clearFormParam();
+    }
     setSettingsRaw((s) => (s.templateId === "tpl-draft" ? { ...s, templateId: `tpl-${crypto.randomUUID().slice(0, 8)}` } : s));
   }, []);
 
@@ -131,6 +159,56 @@ export default function SheetDesigner() {
           <ActiveExamBar />
         </header>
 
+        {sharedBanner && (
+          <div
+            role="status"
+            data-testid="shared-form-banner"
+            className={`v-panel flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm ${
+              sharedBanner.kind === "warn" ? "border-amber-400/50 bg-amber-500/10" : "border-emerald-400/40 bg-emerald-500/10"
+            }`}
+          >
+            <div className="min-w-0 flex-1">
+              {sharedBanner.kind === "warn" ? (
+                <p>Shared form link is invalid or incomplete — loaded default sheet instead.</p>
+              ) : (
+                <p>
+                  Loaded shared form <span className="font-semibold">{sharedBanner.name}</span>.
+                  {sharedBanner.saved && " Saved to your library."}
+                  {sharedBanner.error && <span className="ml-2 text-red-600 dark:text-red-400">{sharedBanner.error}</span>}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {sharedBanner.kind === "ok" && !sharedBanner.saved && (
+                <button
+                  type="button"
+                  data-testid="save-shared-form-btn"
+                  className="v-btn v-btn-primary min-h-9 px-3 text-xs [@media(pointer:coarse)]:min-h-11"
+                  onClick={() => {
+                    try {
+                      saveSheetForm({ name: sharedBanner.name ?? (settings.title || "Shared Form"), settings });
+                      clearFormParam();
+                      setSharedBanner((b) => (b ? { ...b, saved: true, error: undefined } : b));
+                    } catch (e) {
+                      setSharedBanner((b) => (b ? { ...b, error: e instanceof Error ? e.message : String(e) } : b));
+                    }
+                  }}
+                >
+                  Save to My Forms
+                </button>
+              )}
+              <button
+                type="button"
+                data-testid="dismiss-shared-form-btn"
+                className="v-btn min-h-9 px-3 text-xs [@media(pointer:coarse)]:min-h-11"
+                onClick={() => { clearFormParam(); setSharedBanner(null); }}
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
         <nav aria-label="Design steps" data-testid="designer-steps" className="v-panel px-4 py-4 sm:px-6">
           <ol className="flex items-center gap-2 sm:gap-4">
             {steps.map((st, i) => {
@@ -166,6 +244,7 @@ export default function SheetDesigner() {
               {step === 2 && (
                 <div className="space-y-6" data-testid="step-setup">
                   <QuickPresets settings={settings} onApply={(s) => { setSettings(s); setPageIndex(0); }} />
+                  <SavedFormsPanel settings={settings} onApply={(s) => { setSettings(s); setPageIndex(0); }} />
                   <SheetSetupFields settings={settings} onChange={setSettings} />
                 </div>
               )}

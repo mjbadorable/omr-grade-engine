@@ -36,6 +36,11 @@ describe("Phase C: Offline PWA & cache headers", () => {
     expect(src).toContain('{!online ? "Offline" : "Online"}');
     expect(src).not.toContain("Ready to scan offline");
   });
+
+  it("only reloads on controllerchange when replacing an existing service worker", () => {
+    const src = readFileSync(join(process.cwd(), "src/components/shell/OfflineStatus.tsx"), "utf8");
+    expect(src).toContain("reloadOnControl = !!navigator.serviceWorker.controller");
+  });
 });
 
 describe("Phase D: Scan screen-reader announcements", () => {
