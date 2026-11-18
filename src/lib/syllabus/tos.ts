@@ -4,7 +4,7 @@
  * syllabus; teachers only nudge the sliders.
  */
 import type { AnswerKey, QuestionRule } from "@/lib/grading/types";
-import { PERIOD_MODULES, type ExamPeriod, type Syllabus } from "./types";
+import type { ExamPeriod, Syllabus } from "./types";
 
 export interface TosRow {
   moduleNumber: number;
@@ -34,17 +34,36 @@ export function distribute(total: number, weights: number[]): number[] {
   return out;
 }
 
-/** Modules of the period; when the syllabus lacks some, only the ones that exist take questions. */
-export function modulesForPeriod(s: Syllabus, period: ExamPeriod) {
-  const wanted = new Set(PERIOD_MODULES[period]);
-  return s.modules.filter((m) => wanted.has(m.number)).sort((a, b) => a.number - b.number);
+export interface PeriodOptions {
+  /**
+   * Cover everything the syllabus says the exam covers (the COB template's Midterm covers M1–M4) instead
+   * of only the modules filed under that period. Falls back to the period's own modules when the syllabus
+   * states no coverage.
+   */
+  cumulative?: boolean;
 }
 
-/** Default split is proportional to teaching hours when every module has them, else to topic count (min 1). */
-export function generateTos(s: Syllabus, period: ExamPeriod, totalQuestions: number): Tos {
-  const mods = modulesForPeriod(s, period);
-  const useHours = mods.length > 0 && mods.every((m) => (m.hours ?? 0) > 0);
-  const weights = mods.map((m) => (useHours ? m.hours! : Math.max(1, m.topics.length)));
+/**
+ * Modules that take exam questions for a period: the modules the syllabus files under that period
+ * (its own PRELIM / MIDTERM / FINALS grouping), minus unassessed orientation modules such as M0.
+ * Only modules that exist take questions.
+ */
+export function modulesForPeriod(s: Syllabus, period: ExamPeriod, opts: PeriodOptions = {}) {
+  const assessed = s.modules.filter((m) => m.assessed !== false);
+  const stated = opts.cumulative ? s.exams?.find((e) => e.period === period)?.coverage : undefined;
+  const picked = stated?.length ? assessed.filter((m) => stated.includes(m.number)) : assessed.filter((m) => m.period === period);
+  return picked.sort((a, b) => a.number - b.number);
+}
+
+/**
+ * Default split: proportional to lecture hours (the written exam tests lecture) when every module states
+ * them, else to total teaching hours, else to topic count (min 1).
+ */
+export function generateTos(s: Syllabus, period: ExamPeriod, totalQuestions: number, opts: PeriodOptions = {}): Tos {
+  const mods = modulesForPeriod(s, period, opts);
+  const lecture = mods.length > 0 && mods.every((m) => (m.lecture?.hours ?? 0) > 0);
+  const total = mods.length > 0 && mods.every((m) => (m.hours ?? 0) > 0);
+  const weights = mods.map((m) => (lecture ? m.lecture!.hours! : total ? m.hours! : Math.max(1, m.topics.length)));
   const counts = distribute(totalQuestions, weights);
   return {
     period, totalQuestions,

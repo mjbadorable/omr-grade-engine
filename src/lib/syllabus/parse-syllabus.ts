@@ -13,20 +13,12 @@
  *   modules  : "Module 1: Title" followed by topics, with CO tokens and optional hours
  *   grading  : "Lecture … 67%", "Laboratory … 33%", "Major Exam … 50%", "Lab Exam … 30%"
  */
+import { CLASE_POLICY, findTerm, GRADING_DEFAULT_WARNING, type PdfPageItems } from "./defaults";
+import { parseCobPages } from "./parse-cob";
 import { type CourseOutcome, type GradingComponent, type GradingPolicy, type ParseResult, type ProgramOutcome, periodForModule, type Syllabus, type SyllabusModule } from "./types";
 
-/** USA CLASE grading standard, used when the syllabus does not state its own weights. */
-export const CLASE_POLICY: GradingPolicy = {
-  lectureWeight: 67,
-  labWeight: 33,
-  components: [
-    { name: "Major Exam", weight: 50, group: "lecture" },
-    { name: "Class Standing", weight: 50, group: "lecture" },
-    { name: "Laboratory Exam", weight: 30, group: "lab" },
-    { name: "Laboratory Activities", weight: 70, group: "lab" },
-  ],
-  source: "default",
-};
+export { CLASE_POLICY };
+export type { PdfItem, PdfPageItems } from "./defaults";
 
 const clean = (s: string) => s.replace(/\s+/g, " ").replace(/\s*\|\s*$/, "").trim();
 const PO_LETTERS = "A-I";
@@ -71,9 +63,7 @@ function parseHeader(lines: string[]): { courseCode: string; courseTitle: string
       }
     }
   }
-  const termMatch = text.match(/((?:1st|2nd|3rd|first|second|summer)\s+(?:semester|sem\.?|term)[\s,]*(?:(?:A\.?Y\.?|S\.?Y\.?|academic year)\s*)?\d{4}\s*[-–/]\s*\d{2,4})/i)
-    ?? text.match(/((?:A\.?Y\.?|S\.?Y\.?)\s*\d{4}\s*[-–/]\s*\d{2,4}\s*[,\-–]?\s*(?:1st|2nd|first|second)\s+(?:semester|sem\.?|term))/i);
-  return { courseCode, courseTitle, term: termMatch ? clean(termMatch[1]) : "" };
+  return { courseCode, courseTitle, term: findTerm(text) };
 }
 
 /** Group lines into items: `start` recognises an item's first line, other lines wrap onto the previous item. */
@@ -215,7 +205,7 @@ export function parseSyllabusText(text: string): ParseResult {
   const poCodes = new Set(programOutcomes.map((p) => p.code));
   for (const co of courseOutcomes) if (poCodes.size) co.programOutcomes = co.programOutcomes.filter((p) => poCodes.has(p));
   courseOutcomes = courseOutcomes.map((c) => ({ ...c }));
-  if (gradingPolicy.source === "default") warnings.push("Grading weights not found; the USA CLASE standard (67% lecture / 33% lab) was assumed.");
+  if (gradingPolicy.source === "default") warnings.push(GRADING_DEFAULT_WARNING);
 
   const syllabus: Syllabus = {
     courseCode: header.courseCode || "UNKNOWN",
@@ -230,7 +220,7 @@ export function parseSyllabusText(text: string): ParseResult {
 
 interface PdfTextItem { str: string; transform: number[]; width: number; hasEOL?: boolean }
 interface PdfJsLike {
-  getDocument: (src: { data: Uint8Array; useWorkerFetch?: boolean; isEvalSupported?: boolean; useSystemFonts?: boolean }) => { promise: Promise<{ numPages: number; getPage: (n: number) => Promise<{ getTextContent: () => Promise<{ items: unknown[] }> }>; destroy?: () => Promise<void> }> };
+  getDocument: (src: { data: Uint8Array; useWorkerFetch?: boolean; isEvalSupported?: boolean; useSystemFonts?: boolean }) => { promise: Promise<{ numPages: number; getPage: (n: number) => Promise<{ getTextContent: () => Promise<{ items: unknown[] }>; getViewport?: (o: { scale: number }) => { width: number; height: number } }>; destroy?: () => Promise<void> }> };
   GlobalWorkerOptions?: { workerSrc: string };
 }
 
@@ -273,19 +263,45 @@ export function itemsToLines(items: PdfTextItem[]): string[] {
   });
 }
 
-export async function extractPdfText(data: ArrayBuffer | Uint8Array, loader: () => Promise<PdfJsLike> = loadBrowserPdfJs): Promise<string> {
+/** Positioned text of every page, in the form both parsers use. */
+export async function extractPdfPages(data: ArrayBuffer | Uint8Array, loader: () => Promise<PdfJsLike> = loadBrowserPdfJs): Promise<PdfPageItems[]> {
   const pdfjs = await loader();
   const bytes = data instanceof Uint8Array ? data.slice() : new Uint8Array(data.slice(0));
   const doc = await pdfjs.getDocument({ data: bytes, useWorkerFetch: false, isEvalSupported: false, useSystemFonts: true }).promise;
-  const pages: string[] = [];
+  const pages: PdfPageItems[] = [];
   for (let p = 1; p <= doc.numPages; p++) {
-    const content = await (await doc.getPage(p)).getTextContent();
-    pages.push(itemsToLines(content.items.filter((i): i is PdfTextItem => typeof (i as PdfTextItem).str === "string")).join("\n"));
+    const page = await doc.getPage(p);
+    const view = page.getViewport?.({ scale: 1 });
+    const content = await page.getTextContent();
+    const items = content.items
+      .filter((i): i is PdfTextItem => typeof (i as PdfTextItem).str === "string" && !!(i as PdfTextItem).str.trim())
+      .map((i) => ({ str: i.str, x: i.transform[4], y: i.transform[5], w: i.width, size: Math.abs(i.transform[0]) || 10 }));
+    pages.push({ width: view?.width ?? 0, height: view?.height ?? 0, items });
   }
   await doc.destroy?.();
-  return pages.join("\n");
+  return pages;
 }
 
-export async function parseSyllabusPdf(data: ArrayBuffer | Uint8Array, loader?: () => Promise<PdfJsLike>): Promise<ParseResult> {
-  return parseSyllabusText(await extractPdfText(data, loader));
+/** The line-oriented text of one page (table cells joined with " | "), as the line parser expects. */
+const pageLines = (p: PdfPageItems): string[] => itemsToLines(p.items.map((i) => ({ str: i.str, width: i.w, transform: [i.size, 0, 0, i.size, i.x, i.y] })));
+
+export async function extractPdfText(data: ArrayBuffer | Uint8Array, loader?: () => Promise<PdfJsLike>): Promise<string> {
+  return (await extractPdfPages(data, loader)).map((p) => pageLines(p).join("\n")).join("\n");
+}
+
+/**
+ * Parse a syllabus from positioned PDF text. The USA COB/COC table layout is read by cell position;
+ * anything else (the CLASE format) goes through the line parser exactly as before.
+ * `fileName` is only a hint for the term when the document does not state one.
+ */
+export function parseSyllabusPages(pages: PdfPageItems[], opts: { fileName?: string } = {}): ParseResult {
+  const cob = parseCobPages(pages, opts);
+  if (cob) return cob;
+  const result = parseSyllabusText(pages.map((p) => pageLines(p).join("\n")).join("\n"));
+  if (!result.syllabus.term) result.syllabus.term = findTerm(opts.fileName ?? "").slice(0, 60);
+  return result;
+}
+
+export async function parseSyllabusPdf(data: ArrayBuffer | Uint8Array, loader?: () => Promise<PdfJsLike>, opts: { fileName?: string } = {}): Promise<ParseResult> {
+  return parseSyllabusPages(await extractPdfPages(data, loader), opts);
 }

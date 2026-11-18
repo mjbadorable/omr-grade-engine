@@ -28,7 +28,9 @@ export const upsert = mutation({
     const existing = await ctx.db.query("syllabi").withIndex("by_org_course", (q) => q.eq("orgId", orgId).eq("courseCode", s.courseCode).eq("term", s.term)).first();
     const now = Date.now();
     if (existing) {
-      await ctx.db.patch(existing._id, { ...s, updatedAt: now });
+      // `patch` keeps fields that are absent, so clear the optional breakdown fields first: re-dropping a
+      // plainer syllabus must not leave the previous upload's overview / exams behind.
+      await ctx.db.patch(existing._id, { overview: undefined, graduateAttributes: undefined, exams: undefined, ...s, updatedAt: now });
       await logAudit(ctx, orgId, user._id, "SYLLABUS_UPLOAD", `Updated syllabus ${s.courseCode} ${s.courseTitle}`, s.term || undefined);
       return existing._id;
     }

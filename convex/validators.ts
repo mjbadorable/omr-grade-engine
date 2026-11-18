@@ -81,15 +81,30 @@ export const student = v.object({
 
 // ---- syllabus / OBE (src/lib/syllabus/types.ts)
 export const examPeriod = v.union(v.literal("PRELIM"), v.literal("MIDTERM"), v.literal("FINAL"));
+/** one teaching mode of a module (lecture / laboratory); every addition below is optional so stored syllabi stay valid */
+const moduleMode = v.object({ tla: v.array(v.string()), assessments: v.array(v.string()), hours: v.optional(v.number()) });
 export const syllabusBody = {
   courseCode: v.string(),
   courseTitle: v.string(),
   term: v.string(),
   /** PO A–I */
   programOutcomes: v.array(v.object({ code: v.string(), description: v.string() })),
-  /** CO1–CO4, each linked to the POs it supports */
-  courseOutcomes: v.array(v.object({ code: v.string(), description: v.string(), programOutcomes: v.array(v.string()) })),
-  modules: v.array(v.object({ number: v.number(), title: v.string(), topics: v.array(v.string()), courseOutcomes: v.array(v.string()), period: examPeriod, hours: v.optional(v.number()) })),
+  /** CO1–CO4, each linked to the POs (and Augustinian graduate attributes) it supports */
+  courseOutcomes: v.array(v.object({ code: v.string(), description: v.string(), programOutcomes: v.array(v.string()), agaLinks: v.optional(v.array(v.string())) })),
+  modules: v.array(v.object({
+    number: v.number(), title: v.string(), topics: v.array(v.string()), courseOutcomes: v.array(v.string()), period: examPeriod, hours: v.optional(v.number()),
+    /** false for the orientation module (M0); absent means assessed */
+    assessed: v.optional(v.boolean()),
+    learningOutcomes: v.optional(v.array(v.object({ code: v.string(), description: v.string() }))),
+    lecture: v.optional(moduleMode),
+    lab: v.optional(moduleMode),
+  })),
+  overview: v.optional(v.object({
+    college: v.optional(v.string()), department: v.optional(v.string()), program: v.optional(v.string()),
+    courseLevel: v.optional(v.string()), creditUnits: v.optional(v.string()),
+  })),
+  graduateAttributes: v.optional(v.array(v.object({ code: v.string(), description: v.string() }))),
+  exams: v.optional(v.array(v.object({ period: examPeriod, title: v.string(), hours: v.optional(v.number()), coverage: v.array(v.number()) }))),
   gradingPolicy: v.object({
     lectureWeight: v.number(),
     labWeight: v.number(),
