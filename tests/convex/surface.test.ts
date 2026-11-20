@@ -36,8 +36,9 @@ describe("public Convex surface", () => {
     expect(publicFunctions()).toEqual([
       "admin.auditTrail", "admin.decideRequest", "admin.getPolicy", "admin.listAccess", "admin.listFaculty", "admin.pendingCount", "admin.preAuthorize", "admin.revokePreAuthorization", "admin.setPolicy", "admin.setRole",
       "classes.get", "classes.listMine", "classes.remove", "classes.save",
+      "courses.addSection", "courses.create", "courses.listMine", "courses.remove", "courses.removeSection", "courses.setSectionClass", "courses.update",
       "examFolders.create", "examFolders.listByOrg", "examFolders.remove", "examFolders.rename",
-      "exams.archive", "exams.bindSyllabus", "exams.create", "exams.duplicate", "exams.get", "exams.getRoster", "exams.listByOrg", "exams.remove", "exams.setFolder", "exams.setRoster", "exams.setStatus",
+      "exams.applyToSections", "exams.archive", "exams.bindSyllabus", "exams.create", "exams.duplicate", "exams.get", "exams.getRoster", "exams.listByOrg", "exams.remove", "exams.setFolder", "exams.setRoster", "exams.setStatus",
       "grading.addOverrides", "grading.generateUploadUrl", "grading.getAnswerKey", "grading.getExamAnalytics", "grading.getScan", "grading.listKeyVersions", "grading.listOverrides", "grading.listResolutions", "grading.listScans", "grading.resolveConflict", "grading.submitScanBatch", "grading.updateAnswerKey",
       "orgs.addMember", "orgs.ensureDefault", "orgs.listMine", "orgs.myAccess", "orgs.requestAccess",
       "syllabi.get", "syllabi.listByOrg", "syllabi.remove", "syllabi.upsert",

@@ -35,7 +35,15 @@ export function firstUncertainQuestion(items: readonly { printedNumber: number; 
 
 export function isEditableInputTarget(target: EventTarget | null): boolean {
   if (!target || typeof target !== "object") return false;
-  const el = target as { tagName?: string; isContentEditable?: boolean };
+  const el = target as {
+    tagName?: string;
+    isContentEditable?: boolean;
+    getAttribute?: (name: string) => string | null;
+    closest?: (selector: string) => unknown;
+  };
   const tag = el.tagName?.toUpperCase();
-  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!el.isContentEditable;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!el.isContentEditable) return true;
+  const role = el.getAttribute?.("role");
+  if (role === "combobox" || role === "listbox" || role === "option") return true;
+  return !!el.closest?.('[role="combobox"], [role="listbox"], [role="menu"]');
 }

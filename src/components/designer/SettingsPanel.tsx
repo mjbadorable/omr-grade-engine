@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import Select from "@/components/ui/Select";
 import { columnBlockedReason, normalizeSettings } from "@/lib/omr/columns";
 import type { LayoutSettings, SectionSettings } from "@/lib/omr/schema";
 
@@ -109,22 +110,30 @@ function SectionCard({ section, index, total, onChange, onRemove, onMove }: {
         {section.type === "mcq" && (
           <>
             <Field label="Answer choices">{(id) => (
-              <select id={id} className={inputCls} value={section.optionStyle === "true-false" ? 2 : section.optionCount}
-                onChange={(e) => onChange({ ...section, optionCount: Number(e.target.value), optionStyle: section.optionStyle === "true-false" ? "letters" : section.optionStyle })}>
-                {CHOICE_OPTIONS.map((o) => <option key={o.n} value={o.n}>{o.label}</option>)}
-              </select>
+              <Select
+                id={id}
+                ariaLabel="Answer choices"
+                value={String(section.optionStyle === "true-false" ? 2 : section.optionCount)}
+                options={CHOICE_OPTIONS.map((o) => ({ value: String(o.n), label: o.label }))}
+                onChange={(v) => onChange({ ...section, optionCount: Number(v), optionStyle: section.optionStyle === "true-false" ? "letters" : section.optionStyle })}
+              />
             )}</Field>
             <div className="col-span-2">
               <Field label="Choice labels">{(id) => (
-                <select id={id} className={inputCls} value={section.optionStyle}
-                  onChange={(e) => {
-                    const style = e.target.value as typeof section.optionStyle;
+                <Select
+                  id={id}
+                  ariaLabel="Choice labels"
+                  value={section.optionStyle}
+                  options={[
+                    { value: "letters", label: "A B C D …" },
+                    { value: "numbers", label: "1 2 3 4 …" },
+                    { value: "true-false", label: "True / False" },
+                  ]}
+                  onChange={(v) => {
+                    const style = v as typeof section.optionStyle;
                     onChange({ ...section, optionStyle: style, optionCount: style === "true-false" ? 2 : section.optionCount });
-                  }}>
-                  <option value="letters">A B C D …</option>
-                  <option value="numbers">1 2 3 4 …</option>
-                  <option value="true-false">True / False</option>
-                </select>
+                  }}
+                />
               )}</Field>
             </div>
           </>
@@ -167,10 +176,13 @@ export function ExamDetailsFields(props: PanelProps & { showHeading?: boolean })
         <Field label="Exam name (printed title)">{(id) => <input id={id} className={inputCls} value={settings.title} maxLength={80} onChange={(e) => set("title", e.target.value)} />}</Field>
         <Field label="Course / subtitle">{(id) => <input id={id} className={inputCls} value={settings.subtitle} maxLength={80} placeholder="e.g. IT 321 Information Assurance and Security 1" onChange={(e) => set("subtitle", e.target.value)} />}</Field>
         <Field label="Paper size">{(id) => (
-          <select id={id} className={inputCls} value={settings.paper} onChange={(e) => set("paper", e.target.value as LayoutSettings["paper"])}>
-            <option value="A4">A4</option>
-            <option value="LETTER">Letter</option>
-          </select>
+          <Select
+            id={id}
+            ariaLabel="Paper size"
+            value={settings.paper}
+            options={[{ value: "A4", label: "A4" }, { value: "LETTER", label: "Letter" }]}
+            onChange={(v) => set("paper", v as LayoutSettings["paper"])}
+          />
         )}</Field>
       </section>
   );
@@ -187,10 +199,16 @@ export function SheetSetupFields(props: PanelProps) {
         <div className="grid grid-cols-2 gap-2">
           <Field label="Student ID length" hint="0 = no ID grid">{(id) => <NumberInput id={id} value={settings.rollDigits} min={0} max={10} onChange={(v) => set("rollDigits", v)} />}</Field>
           <Field label="Exam sets">{(id) => (
-            <select id={id} className={inputCls} value={settings.examSets} onChange={(e) => set("examSets", Number(e.target.value))}>
-              <option value={0}>No sets</option>
-              {[2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{"ABCDEF".slice(0, n).split("").join(" / ")}</option>)}
-            </select>
+            <Select
+              id={id}
+              ariaLabel="Exam sets"
+              value={String(settings.examSets)}
+              options={[
+                { value: "0", label: "No sets" },
+                ...[2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: "ABCDEF".slice(0, n).split("").join(" / ") })),
+              ]}
+              onChange={(v) => set("examSets", Number(v))}
+            />
           )}</Field>
         </div>
         <Toggle label="Name / class / signature lines" checked={settings.nameField} onChange={(v) => set("nameField", v)} />
@@ -225,9 +243,16 @@ export function SheetSetupFields(props: PanelProps) {
         <summary className="cursor-pointer text-sm font-medium">Advanced Layout Settings</summary>
         <div className="mt-3 space-y-3">
           <Field label="Answer columns" hint="More choices per question need wider columns, so fewer fit side by side.">{(id) => (
-            <select id={id} className={inputCls} value={settings.columns} onChange={(e) => set("columns", Number(e.target.value))}>
-              {[1, 2, 3, 4, 5, 6].map((n) => { const why = columnBlockedReason(settings, n); return <option key={n} value={n} disabled={!!why}>{n}{why ? ` (${why})` : ""}</option>; })}
-            </select>
+            <Select
+              id={id}
+              ariaLabel="Answer columns"
+              value={String(settings.columns)}
+              options={[1, 2, 3, 4, 5, 6].map((n) => {
+                const why = columnBlockedReason(settings, n);
+                return { value: String(n), label: `${n}${why ? ` (${why})` : ""}`, disabled: !!why };
+              })}
+              onChange={(v) => set("columns", Number(v))}
+            />
           )}</Field>
           <Field label={`Bubble size · ${settings.bubbleDiameterMm.toFixed(1)} mm`}>
             {(id) => (
@@ -236,10 +261,13 @@ export function SheetSetupFields(props: PanelProps) {
             )}
           </Field>
           <Field label="Student ID digit order">{(id) => (
-            <select id={id} className={inputCls} value={settings.rollStartDigit} onChange={(e) => set("rollStartDigit", Number(e.target.value) as 0 | 1)}>
-              <option value={0}>0 1 2 … 9</option>
-              <option value={1}>1 2 … 9 0</option>
-            </select>
+            <Select
+              id={id}
+              ariaLabel="Student ID digit order"
+              value={String(settings.rollStartDigit)}
+              options={[{ value: "0", label: "0 1 2 … 9" }, { value: "1", label: "1 2 … 9 0" }]}
+              onChange={(v) => set("rollStartDigit", Number(v) as 0 | 1)}
+            />
           )}</Field>
           <div className="grid grid-cols-3 gap-2">
             <div className="col-span-2">

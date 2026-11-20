@@ -6,7 +6,7 @@
 import { PERIOD_LABEL, type ExamPeriod } from "@/lib/syllabus/types";
 
 export interface LocalSheet { title: string; layoutHash: string; templateId?: string }
-export interface LocalLibraryExam { id: string; name: string; layoutHash: string; folderId: string | null; archivedAt: number | null; createdAt: number }
+export interface LocalLibraryExam { id: string; name: string; layoutHash: string; folderId: string | null; archivedAt: number | null; createdAt: number; courseId?: string | null; sectionId?: string | null }
 export interface WorkspaceExam {
   _id: string;
   name: string;
@@ -16,6 +16,9 @@ export interface WorkspaceExam {
   examPeriod?: string | null;
   folderId?: string | null;
   archivedAt?: number | null;
+  /** course the exam is filed under; sectionId null = all of its sections */
+  courseId?: string | null;
+  sectionId?: string | null;
   createdAt: number;
 }
 
@@ -31,6 +34,8 @@ export interface DashboardRow {
   period: string | null;
   folderId?: string | null;
   archivedAt?: number | null;
+  courseId?: string | null;
+  sectionId?: string | null;
   /** sheets scanned on this device for this layout; null = unknown */
   scanned: number | null;
   /** creation time (workspace exams only); null = unknown */
@@ -69,6 +74,8 @@ export function dashboardRows(
     period: periodLabel(e.examPeriod),
     folderId: e.folderId ?? null,
     archivedAt: e.archivedAt ?? null,
+    courseId: e.courseId ?? null,
+    sectionId: e.courseId ? e.sectionId ?? null : null,
     // the device only knows the scans of the sheet it holds
     scanned: i.local && i.local.layoutHash === e.layoutHash ? i.localScanCount : null,
     createdAt: e.createdAt,
@@ -87,6 +94,8 @@ export function dashboardRows(
       period: null,
       folderId: le.folderId,
       archivedAt: le.archivedAt,
+      courseId: le.courseId ?? null,
+      sectionId: le.courseId ? le.sectionId ?? null : null,
       scanned: i.local && i.local.layoutHash === le.layoutHash ? i.localScanCount : null,
       createdAt: le.createdAt,
     });
@@ -133,5 +142,22 @@ export function atAGlance(i: {
     { id: "scanned", label: "Sheets scanned on this device", value: i.localScanCount, available: true },
     { id: "syllabi", label: "Syllabi", value: i.syllabi ?? null, available: i.syllabi !== undefined },
     { id: "pending", label: "Pending access", value: i.pending ?? null, available: i.pending !== undefined },
+  ];
+}
+
+export interface KpiTile { id: "courses" | "sections" | "exams" | "scanned"; label: string; value: number | null }
+
+/**
+ * The dashboard's four-tile strip. Courses and Sections come from the teacher's courses (null until they have loaded),
+ * Examinations and For Grading from the real glance tiles (exam count; sheets scanned on this device). A loaded zero
+ * stays 0 and an unknown value stays null (shown as "–"); nothing is ever estimated.
+ */
+export function dashboardKpis(i: { courses: readonly { sections: readonly unknown[] }[]; coursesLoaded: boolean; glance: readonly GlanceTile[] }): KpiTile[] {
+  const tile = (id: GlanceTile["id"]) => i.glance.find((t) => t.id === id)?.value ?? null;
+  return [
+    { id: "courses", label: i.courses.length === 1 ? "Course" : "Courses", value: i.coursesLoaded ? i.courses.length : null },
+    { id: "sections", label: "Sections", value: i.coursesLoaded ? i.courses.reduce((n, c) => n + c.sections.length, 0) : null },
+    { id: "exams", label: "Examinations", value: tile("exams") },
+    { id: "scanned", label: "For Grading", value: tile("scanned") },
   ];
 }

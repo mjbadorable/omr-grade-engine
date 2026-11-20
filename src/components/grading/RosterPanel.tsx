@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Select from "@/components/ui/Select";
 import { type ImportResult, importRoster, rosterToCsv } from "@/lib/roster/importer";
 import type { Reconciliation } from "@/lib/roster/reconcile";
 import type { Roster } from "@/lib/roster/schema";
@@ -42,13 +43,19 @@ function ClassPicker({ classes, roster, onAttach }: { classes: ClassesPort; rost
   }
 
   return (
-    <div className="v-panel space-y-3 p-3 text-sm" data-testid="class-picker">
+    <div className="v-panel w-fit max-w-full space-y-3 p-3 text-sm" data-testid="class-picker">
       <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor="saved-class" className="font-medium">Saved classes</label>
-        <select id="saved-class" name="saved-class" className="v-input min-h-10 min-w-48 flex-1" value="" disabled={busy || !classes.list?.length} onChange={(e) => { if (e.target.value) void attach(e.target.value); }}>
-          <option value="">{classes.list === undefined ? "Loading…" : classes.list.length ? "Use a saved class for this exam…" : "No saved classes yet"}</option>
-          {classes.list?.map((c) => <option key={c.id} value={c.id}>{c.name}{c.section ? ` · ${c.section}` : ""} ({c.count} students)</option>)}
-        </select>
+        <label htmlFor="saved-class" className="whitespace-nowrap font-medium">Saved classes</label>
+        <Select
+          id="saved-class"
+          name="saved-class"
+          value=""
+          disabled={busy || !classes.list?.length}
+          placeholder={classes.list === undefined ? "Loading…" : classes.list.length ? "Use a saved class for this exam…" : "No saved classes yet"}
+          className="w-full min-w-0 sm:w-64"
+          options={(classes.list ?? []).map((c) => ({ value: c.id, label: `${c.name}${c.section ? ` · ${c.section}` : ""} (${c.count} students)` }))}
+          onChange={(v) => { if (v) void attach(v); }}
+        />
         {roster && !saving && <button type="button" className="v-btn min-h-10" data-testid="save-as-class" onClick={() => { setName(roster.name); setSection(""); setSaving(true); setMsg(null); }}>Save this roster as a class</button>}
       </div>
       {saving && roster && (

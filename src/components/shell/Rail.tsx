@@ -101,7 +101,7 @@ export default function Rail({ role, orgId, onNavigate }: { role: Role | null; o
       </div>
       <div className="border-t border-[var(--rail-border)] p-4">
         <button type="button" onClick={() => { onNavigate?.(); openGuide(); }} data-testid="rail-help" className={`${row} w-full text-left ${idle}`}>
-          <Icon id="help" />Help &amp; Support
+          <Icon id="help" />Tutorial
         </button>
       </div>
     </nav>

@@ -8,6 +8,7 @@ import { useMutation, useQuery } from "convex/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import Select from "@/components/ui/Select";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { EmptyHero } from "@/components/brand/Brand";
@@ -217,9 +218,15 @@ function Access({ orgId }: { orgId: Id<"orgs"> }) {
           {data?.pending.map((r) => (
             <li key={r._id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm" data-testid={`request-${r.email}`}>
               <div className="min-w-0 flex-1"><p className="truncate font-medium">{r.name || r.email}</p><p className="truncate text-xs text-zinc-500">{r.email} · {when(r.requestedAt)}</p></div>
-              <select name={`role-${r._id}`} aria-label={`Role for ${r.email}`} className={input} value={grant[r._id] ?? "teacher"} onChange={(e) => setGrant((g) => ({ ...g, [r._id]: e.target.value as "teacher" | "admin" }))}>
-                <option value="teacher">Teacher</option><option value="admin">Admin</option>
-              </select>
+              <Select
+                name={`role-${r._id}`}
+                ariaLabel={`Role for ${r.email}`}
+                size="sm"
+                className="w-28"
+                value={grant[r._id] ?? "teacher"}
+                options={[{ value: "teacher", label: "Teacher" }, { value: "admin", label: "Admin" }]}
+                onChange={(v) => setGrant((g) => ({ ...g, [r._id]: v as "teacher" | "admin" }))}
+              />
               <button type="button" className="v-btn v-btn-primary !px-3 !py-1 !text-xs" onClick={() => run(() => decide({ orgId, requestId: r._id, decision: "approve", role: grant[r._id] ?? "teacher" }))}>Approve</button>
               <button type="button" className={btn} onClick={() => run(() => decide({ orgId, requestId: r._id, decision: "reject" }))}>Reject</button>
             </li>
@@ -232,7 +239,14 @@ function Access({ orgId }: { orgId: Id<"orgs"> }) {
         <p className="text-xs text-zinc-500">Paste @usa.edu.ph emails separated by commas or new lines. They are bound to the chosen role the moment they sign in.</p>
         <textarea name="faculty-emails" aria-label="Faculty emails" className={`${input} h-28 w-full font-mono text-xs`} placeholder={"ana@usa.edu.ph\nben@usa.edu.ph, carla@usa.edu.ph"} value={emails} onChange={(e) => setEmails(e.target.value)} />
         <div className="flex flex-wrap items-center gap-2">
-          <select name="role-to-grant" aria-label="Role to grant" className={input} value={role} onChange={(e) => setRole(e.target.value as "teacher" | "admin")}><option value="teacher">Teacher</option><option value="admin">Admin</option></select>
+          <Select
+            name="role-to-grant"
+            ariaLabel="Role to grant"
+            className="w-32"
+            value={role}
+            options={[{ value: "teacher", label: "Teacher" }, { value: "admin", label: "Admin" }]}
+            onChange={(v) => setRole(v as "teacher" | "admin")}
+          />
           <button type="button" className="v-btn v-btn-primary px-4" disabled={!preview.valid.length && !preview.invalid.length}
             onClick={() => { setMsg(null); setErr(null); preAuthorize({ orgId, emails, role }).then((r) => { setMsg({ ok: r.invalid.length === 0, text: [r.queued.length && `${r.queued.length} will be bound at first sign-in`, r.bound.length && `${r.bound.length} already signed in: bound now`, r.unchanged.length && `${r.unchanged.length} already had access`, r.invalid.length && `Not accepted: ${r.invalid.join(", ")}`].filter(Boolean).join(" · ") }); if (!r.invalid.length) setEmails(""); }).catch((e) => setErr(errText(e))); }}>
             Authorize {preview.valid.length || ""} {preview.valid.length === 1 ? "person" : "people"}

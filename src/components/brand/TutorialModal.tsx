@@ -6,7 +6,7 @@
  * with the menu closed, local-first mode, a different tab) the card is simply centered.
  *
  * Auto-opens the first time a route is visited, only after the institutional acknowledgment; the
- * "Help & Support" rail item and the profile menu reopen it on the current page's starting step.
+ * "Tutorial" rail item and the profile menu reopen it on the current page's starting step.
  * Non-modal: the page underneath stays usable. Escape closes, arrow keys step.
  */
 import { usePathname, useRouter } from "next/navigation";
@@ -16,7 +16,7 @@ import { readAck } from "@/lib/acknowledgment";
 import { isAdmin } from "@/lib/roles/policy";
 import type { IconName } from "@/lib/tutorial-content";
 import { ACK_ACCEPTED_EVENT, categoryForPath, markSeen, OPEN_GUIDE_EVENT, readAuto, readSeen, shouldAutoOpen, type TutorialCategory, writeAuto } from "@/lib/tutorial-state";
-import { type Box, isCompactViewport, pickTarget, placePopover, samePage, scrollDeltaForDock, spotlightBox, startIndex, tourSteps } from "@/lib/tutorial-tour";
+import { type Box, isCompactViewport, isTyping, pickTarget, placePopover, samePage, scrollDeltaForDock, spotlightBox, startIndex, tourSteps, widgetOwnsEscape } from "@/lib/tutorial-tour";
 
 const ICONS: Record<IconName, React.ReactNode> = {
   upload: <path d="M12 16V4m0 0L7 9m5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />,
@@ -31,17 +31,19 @@ const ICONS: Record<IconName, React.ReactNode> = {
   users: <><circle cx="9" cy="8" r="3.2" /><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M16 5a3 3 0 0 1 0 6M18 14c1.7.7 3 2.5 3 5" /></>,
   shield: <path d="M12 3 5 6v6c0 4.2 2.9 7.4 7 9 4.1-1.6 7-4.8 7-9V6zM9 12l2 2 4-4" />,
   list: <path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" />,
+  book: <path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5zM5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3M9 7h6M9 11h4" />,
+  layers: <path d="M12 3 3 8l9 5 9-5-9-5zM3 12.5l9 5 9-5M3 17l9 5 9-5" />,
+  bolt: <path d="M13 3 5 13.5h6L10 21l8-10.5h-6z" />,
 };
 const Icon = ({ name }: { name: IconName }) => <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{ICONS[name]}</svg>;
 
-const CATEGORY_LABEL: Record<TutorialCategory, string> = { design: "Design", scan: "Scan", grade: "Grade", admin: "Admin" };
+const CATEGORY_LABEL: Record<TutorialCategory, string> = { dashboard: "Dashboard", design: "Design", scan: "Scan", grade: "Grade", admin: "Admin" };
 const CARD_W = 360;
 const SCRIM = "rgba(13, 14, 18, 0.56)";
 
 const onScreen = (el: HTMLElement) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
 const page = () => ({ pathname: window.location.pathname, search: window.location.search });
 const reducedMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-const isTyping = (t: EventTarget | null) => t instanceof HTMLElement && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName));
 
 export default function TutorialModal() {
   const path = usePathname();
@@ -152,7 +154,7 @@ export default function TutorialModal() {
   useEffect(() => {
     if (!open) return;
     const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); close(); return; }
+      if (e.key === "Escape") { if (widgetOwnsEscape(e)) return; e.preventDefault(); close(); return; }
       if (isTyping(e.target) || e.altKey || e.ctrlKey || e.metaKey) return;
       if (e.key === "ArrowRight") { e.preventDefault(); setIndex((i) => Math.min(stepsRef.current.length - 1, i + 1)); }
       if (e.key === "ArrowLeft") { e.preventDefault(); setIndex((i) => Math.max(0, i - 1)); }
@@ -182,7 +184,7 @@ export default function TutorialModal() {
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Guide sections">
           {cats.map((c) => (
             <button key={c} type="button" data-testid={`tour-cat-${c}`} aria-pressed={c === step.category} onClick={() => go(steps.findIndex((s) => s.category === c))}
-              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors duration-150 motion-reduce:transition-none ${c === step.category ? "border-[var(--brand-solid)] bg-[var(--brand-solid)] text-white" : "border-[var(--border)] text-zinc-600 hover:border-[var(--brand-soft)] dark:text-zinc-300"}`}>
+              className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors duration-150 motion-reduce:transition-none [@media(pointer:coarse)]:min-h-11 ${c === step.category ? "border-[var(--brand-solid)] bg-[var(--brand-solid)] text-white" : "border-[var(--border)] text-zinc-600 hover:border-[var(--brand-soft)] dark:text-zinc-300"}`}>
               {CATEGORY_LABEL[c]}
             </button>
           ))}
@@ -204,18 +206,18 @@ export default function TutorialModal() {
           </aside>
         )}
 
-        <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+        <label className="flex cursor-pointer items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 [@media(pointer:coarse)]:min-h-11">
           <input id="tutorial-auto-off" name="tutorial-auto-off" type="checkbox" className="size-4 accent-indigo-600" checked={!auto} onChange={(e) => { setAuto(!e.target.checked); writeAuto(!e.target.checked); }} />
           Don’t show automatically on new pages
         </label>
 
         <div className="flex items-center gap-2 border-t border-[var(--border)] pt-4">
-          {!last && <button type="button" onClick={close} data-testid="tutorial-done" className="v-btn min-h-10 border-transparent bg-transparent px-4 text-zinc-600 dark:text-zinc-400">Skip</button>}
+          {!last && <button type="button" onClick={close} data-testid="tutorial-done" className="v-btn min-h-10 [@media(pointer:coarse)]:min-h-11 border-transparent bg-transparent px-4 text-zinc-600 dark:text-zinc-400">Skip</button>}
           <div className="ml-auto flex items-center gap-2">
-            <button type="button" onClick={() => go(index - 1)} disabled={index === 0} aria-label="Previous step" className="v-btn min-h-10 px-4">← Previous</button>
+            <button type="button" onClick={() => go(index - 1)} disabled={index === 0} aria-label="Previous step" className="v-btn min-h-10 [@media(pointer:coarse)]:min-h-11 px-4">← Previous</button>
             {last
-              ? <button ref={nextRef} type="button" onClick={close} data-testid="tutorial-done" className="v-btn v-btn-primary min-h-10 px-4">Finish</button>
-              : <button ref={nextRef} type="button" onClick={() => go(index + 1)} aria-label="Next step" className="v-btn v-btn-primary min-h-10 px-4">Next →</button>}
+              ? <button ref={nextRef} type="button" onClick={close} data-testid="tutorial-done" className="v-btn v-btn-primary border-[var(--brand-solid)] bg-[var(--brand-solid)] text-white min-h-10 [@media(pointer:coarse)]:min-h-11 px-4">Finish</button>
+              : <button ref={nextRef} type="button" onClick={() => go(index + 1)} aria-label="Next step" className="v-btn v-btn-primary border-[var(--brand-solid)] bg-[var(--brand-solid)] text-white min-h-10 [@media(pointer:coarse)]:min-h-11 px-4">Next →</button>}
           </div>
         </div>
       </section>

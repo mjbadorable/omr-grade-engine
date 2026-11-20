@@ -22,6 +22,7 @@ import { mulberry32, simulateClass } from "@/lib/grading/simulate";
 import type { AnswerKey, ChoiceRule, ScanInput, ScoredSheet } from "@/lib/grading/types";
 import { type OMRTemplate, OMRTemplateSchema } from "@/lib/omr/schema";
 import { applyOverrides, type ManualOverridePatch } from "@/lib/review/overrides";
+import { sectionTags } from "@/lib/courses/courses";
 import { reconcile } from "@/lib/roster/reconcile";
 import type { Roster } from "@/lib/roster/schema";
 import { studentName } from "@/lib/samples/names";
@@ -42,6 +43,7 @@ import { parseGradeTab } from "@/lib/shell-nav";
 import { ActionMenu, ExamStatusControl, type MenuItem } from "./GradeHeaderParts";
 import Gradebook from "./Gradebook";
 import GradeSummaryStrip from "./GradeSummaryStrip";
+import SectionPills from "./SectionPills";
 import ItemAnalysisView from "./ItemAnalysisView";
 import KeyCanvas, { ScoringRules } from "./KeyEditor";
 import OutcomesView from "./OutcomesView";
@@ -223,6 +225,11 @@ export default function GradeApp() {
 
   const recon = useMemo(() => reconcile(roster, counted.map((s) => ({ sheetId: s.sheetId, rollNumber: s.fields.rollNumber }))), [roster, counted]);
   const names = useMemo(() => new Map([...recon.studentBySheet].map(([id, st]) => [id, st.name])), [recon]);
+  // section pills: only when the roster tags students with two or more sections (e.g. a class list for a multi-section course)
+  const [sectionFilter, setSectionFilter] = useState<string | null>(null);
+  const sectionBySheet = useMemo(() => new Map([...recon.studentBySheet].map(([id, st]) => [id, st.section])), [recon]);
+  const sectionPills = useMemo(() => sectionTags(sectionBySheet), [sectionBySheet]);
+  const activeSection = sectionFilter && sectionPills.some((t) => t.label === sectionFilter) ? sectionFilter : null;
   const outcomeByQ = useMemo(() => new Map([...(key?.questions.values() ?? [])].filter((r) => r.outcomeCode).map((r) => [r.questionNumber, r.outcomeCode!] as const)), [key]);
   const stats = useMemo(() => new Map(graded?.report.items.map((i) => [i.questionNumber, i]) ?? []), [graded]);
   const sourceById = useMemo(() => new Map(effective.map((s) => [s.sheetId, s])), [effective]);
@@ -397,6 +404,7 @@ export default function GradeApp() {
   const keyed = [...key.questions.values()].filter((r) => (r.type === "choice" ? r.correct.length : r.type === "numeric" ? r.value !== null : true)).length;
   const openConflicts = groups.filter((g) => g.kind === "DIVERGENT_ANSWERS" && !g.resolution).length;
 
+  const shownSheets = graded ? (activeSection ? graded.sheets.filter((x) => sectionBySheet.get(x.sheetId)?.trim() === activeSection) : graded.sheets) : [];
   const sheetsN = graded?.sheets.length ?? 0;
   const exceptions = exceptionsCount({ openConflicts, hasRoster: !!roster, absent: recon.summary.absent, unregistered: recon.summary.unregistered, unreadable: recon.summary.unreadable });
   const tabs = gradeTabs({ keyed, total: key.questions.size, sheets: sheetsN, exceptions, belowTarget: attainment?.belowTarget.length ?? 0 });
@@ -465,14 +473,15 @@ export default function GradeApp() {
 
         {tab === "gradebook" && (graded?.sheets.length ? (
           <div className="space-y-6">
-            <GradeSummaryStrip sheets={graded.sheets} />
+            <SectionPills tags={sectionPills} total={graded.sheets.length} value={activeSection} onChange={setSectionFilter} />
+            <GradeSummaryStrip sheets={shownSheets} />
             {openConflicts > 0 && (
               <div role="status" className="v-panel flex flex-wrap items-center gap-4 border-gold bg-gold-tint px-4 py-2 text-sm" data-testid="conflict-notice">
                 <span className="min-w-0 flex-1">{openConflicts} student{openConflicts > 1 ? "s were" : " was"} scanned more than once with different answers.</span>
                 <button type="button" className="v-btn" onClick={() => setTab("roster")}>Review exceptions</button>
               </div>
             )}
-            <Gradebook sheets={graded.sheets} onOpen={setOpenId} names={names} />
+            <Gradebook sheets={shownSheets} onOpen={setOpenId} names={names} />
           </div>
         ) : <Empty />)}
 

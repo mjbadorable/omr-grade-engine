@@ -7,6 +7,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { BrandMark } from "@/components/brand/Brand";
 import { useCloudSession } from "@/components/cloud/CloudSession";
+import { CampusBackdrop } from "@/components/dashboard/icons";
 import { isAdmin } from "@/lib/roles/policy";
 import { breadcrumb } from "@/lib/shell-nav";
 import AccessBanner from "./AccessBanner";
@@ -93,7 +94,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <AccessBanner />
         </header>
-        <div className="min-w-0 flex-1">{children}</div>
+        <div className="relative min-w-0 flex-1 overflow-x-clip">
+          <CampusBackdrop />
+          <div className="pb-14 sm:pb-16">{children}</div>
+        </div>
       </div>
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden" data-testid="rail-drawer">

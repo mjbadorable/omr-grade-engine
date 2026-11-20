@@ -10,6 +10,7 @@ import { useCloudSession } from "@/components/cloud/CloudSession";
 import SyncBadge from "@/components/cloud/SyncBadge";
 import { type ActiveExam, resolveActiveExam, SHEET_PRINTED_EVENT, shouldAutoSave, TEMPLATE_CHANGED_EVENT } from "@/lib/active-exam";
 import { OMRTemplateSchema, type OMRTemplate } from "@/lib/omr/schema";
+import { readCourseBinding } from "@/lib/storage/course-library";
 import { readStoredPlan } from "@/lib/syllabus/plan-store";
 import { readStoredTemplate } from "@/lib/storage/template-store";
 
@@ -67,7 +68,11 @@ export default function ActiveExamBar({ fill = false }: { fill?: boolean }) {
     try {
       const plan = readStoredPlan();
       const linked = plan && plan.templateId === t.templateId && plan.tos.totalQuestions === t.questionCount ? plan : null;
-      await s.createExam(t.title || t.templateId, t, linked);
+      // a sheet designed inside a course is filed there (a section that no longer exists means all sections)
+      const b = readCourseBinding();
+      const c = b && b.templateId === t.templateId ? s.courses?.find((x) => x._id === b.courseId) : undefined;
+      const filed = b && c ? { courseId: b.courseId, sectionId: b.sectionId && c.sections.some((x) => x.id === b.sectionId) ? b.sectionId : null } : null;
+      await s.createExam(t.title || t.templateId, t, linked, filed);
     } catch (e) {
       inFlight.current.delete(t.layoutHash);
       setErr((e as { data?: { message?: string } })?.data?.message ?? (e as Error)?.message ?? String(e));
@@ -78,7 +83,10 @@ export default function ActiveExamBar({ fill = false }: { fill?: boolean }) {
   useEffect(() => {
     if (!s || !signedIn) return;
     if (active.kind === "match" && s.selection.examId !== active.exam._id) s.selectExam(active.exam._id as never);
-    if (active.kind === "draft" && local && shouldAutoSave({ active, signedIn, role: s.workspace.role, path, printedHash: printed, inFlight: inFlight.current, examsLoaded: exams !== undefined })) {
+    // a draft that belongs to a course waits for the course list, so it is filed on its first save
+    const b = readCourseBinding();
+    const waitingForCourses = !!b && !!local && b.templateId === local.templateId && s.courses === undefined;
+    if (active.kind === "draft" && local && !waitingForCourses && shouldAutoSave({ active, signedIn, role: s.workspace.role, path, printedHash: printed, inFlight: inFlight.current, examsLoaded: exams !== undefined })) {
       const parsed = OMRTemplateSchema.safeParse(local);
       if (parsed.success) void saveDraft(parsed.data);
     }
@@ -98,13 +106,13 @@ export default function ActiveExamBar({ fill = false }: { fill?: boolean }) {
     <div className={`flex min-w-0 items-center gap-2 ${fill ? "w-full" : ""}`} data-testid="active-exam-bar">
       <div className={`relative min-w-0 ${fill ? "flex-1" : ""}`} ref={ref}>
         <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} data-testid="active-exam" title={`${label} · ${err ?? status}`}
-          className={`flex items-center gap-1.5 rounded-full ${fill ? "w-full" : "max-w-[200px]"} border border-zinc-200 bg-white px-2.5 py-1.5 [@media(pointer:coarse)]:min-h-11 text-left text-xs hover:border-indigo-300 dark:border-zinc-800 dark:bg-zinc-950`}>
-          <svg viewBox="0 0 24 24" className="size-3.5 shrink-0 text-indigo-600" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M7 3h8l4 4v14H7zM15 3v4h4M10 12h6M10 16h6" /></svg>
+          className={`v-select-trigger flex items-center gap-1.5 rounded-full ${fill ? "w-full" : "max-w-[200px]"} px-3 py-1.5 text-left text-xs ${open ? "is-open" : ""} [@media(pointer:coarse)]:min-h-11`}>
+          <svg viewBox="0 0 24 24" className="size-3.5 shrink-0 text-[var(--brand)]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M7 3h8l4 4v14H7zM15 3v4h4M10 12h6M10 16h6" /></svg>
           <span className={`min-w-0 flex-1 truncate font-semibold ${err ? "text-red-600" : ""}`} data-testid="active-exam-name">{label}</span>
-          <span className="shrink-0 text-zinc-400" aria-hidden>▾</span>
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden className={`size-3.5 shrink-0 text-[var(--muted)] transition-transform duration-200 ${open ? "rotate-180 text-[var(--brand)]" : ""}`}><path d="M5.5 7.5L10 12l4.5-4.5" /></svg>
         </button>
         {open && (
-          <div className="absolute left-0 top-full z-50 mt-2 w-[min(20rem,calc(100vw-1.5rem))] space-y-2 rounded-lg border border-zinc-200 bg-white p-2 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-950">
+          <div className={`v-select-popover absolute ${fill ? "left-0" : "right-0"} top-full z-50 mt-2 w-[min(20rem,calc(100vw-1.5rem))] space-y-2 p-2 text-sm`}>
             <p className="px-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Active exam</p>
             {local && (
               <button type="button" className={`w-full rounded-md px-2 py-1.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 ${s?.selection.examId ? "" : "bg-indigo-50 dark:bg-indigo-500/10"}`}

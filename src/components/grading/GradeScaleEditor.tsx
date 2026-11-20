@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Select, { type SelectOption } from "@/components/ui/Select";
 import {
   type CustomScale,
   deleteCustomScale,
@@ -101,13 +102,16 @@ export default function GradeScaleEditor({ bands, onChange }: { bands: GradeBand
       <div className="flex items-end gap-2">
         <label className="block min-w-0 flex-1">
           <span className="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Grading scale</span>
-          <select
+          <Select
             name="grade-scale"
-            aria-label="Grading scale"
-            className={`${input} w-full`}
+            ariaLabel="Grading scale"
             value={selectValue}
-            onChange={(e) => {
-              const v = e.target.value;
+            options={[
+              ...SCALE_PRESETS.map((p): SelectOption => ({ value: p.id, label: p.name })),
+              ...customScales.map((s): SelectOption => ({ value: `saved:${s.id}`, label: s.name, group: "My Custom Scales" })),
+              { value: "custom", label: "Custom grading scale" },
+            ]}
+            onChange={(v) => {
               if (v === "custom") {
                 setCustomMode(true);
               } else if (v.startsWith("saved:")) {
@@ -117,15 +121,7 @@ export default function GradeScaleEditor({ bands, onChange }: { bands: GradeBand
                 pickPreset(v as ScaleId);
               }
             }}
-          >
-            {SCALE_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            {customScales.length > 0 && (
-              <optgroup label="My Custom Scales">
-                {customScales.map((s) => <option key={s.id} value={`saved:${s.id}`}>{s.name}</option>)}
-              </optgroup>
-            )}
-            <option value="custom">Custom grading scale</option>
-          </select>
+          />
         </label>
         {matchedCustom && (
           <button

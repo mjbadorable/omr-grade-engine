@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { firstUncertainQuestion, flaggedQueue, queuePosition } from "@/lib/grading/review-queue";
+import { firstUncertainQuestion, flaggedQueue, isEditableInputTarget, queuePosition } from "@/lib/grading/review-queue";
 import type { SummarySheet } from "@/lib/grading/grade-summary";
 
 const sheet = (id: string, flaggedCount = 0, sheetFlags: SummarySheet["sheetFlags"] = []): SummarySheet => ({
@@ -37,5 +37,12 @@ describe("fast review queue helpers", () => {
       { printedNumber: 9, status: "FLAGGED_CONFLICT" },
     ])).toBe(4);
     expect(firstUncertainQuestion([{ printedNumber: 1, status: "CORRECT" }])).toBeNull();
+  });
+
+  it("treats custom crystal Select comboboxes/listboxes as editable targets so modal shortcuts stay suppressed", () => {
+    expect(isEditableInputTarget({ tagName: "BUTTON", getAttribute: (n: string) => (n === "role" ? "combobox" : null) } as unknown as EventTarget)).toBe(true);
+    expect(isEditableInputTarget({ tagName: "DIV", getAttribute: (n: string) => (n === "role" ? "option" : null) } as unknown as EventTarget)).toBe(true);
+    expect(isEditableInputTarget({ tagName: "SPAN", closest: () => ({}) } as unknown as EventTarget)).toBe(true);
+    expect(isEditableInputTarget({ tagName: "BUTTON", getAttribute: () => null } as unknown as EventTarget)).toBe(false);
   });
 });

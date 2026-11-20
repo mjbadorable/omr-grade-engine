@@ -6,7 +6,14 @@ import { normalizeSettings } from "@/lib/omr/columns";
 import { sheetSummary } from "@/lib/omr/summary";
 import { computeLayout, type LayoutResult } from "@/lib/omr/layout-engine";
 import { DEFAULT_SETTINGS } from "@/lib/omr/presets";
-import { writeStoredTemplate } from "@/lib/storage/template-store";
+import { readStoredTemplate, writeStoredTemplate } from "@/lib/storage/template-store";
+import { courseDesignDefaults, parseCourseParams } from "@/lib/courses/courses";
+import { writeCourseBinding } from "@/lib/storage/course-library";
+import { applyDesignToLocalSections, upsertLocalExam } from "@/lib/storage/exam-library";
+import { readStoredPlan } from "@/lib/syllabus/plan-store";
+import { useCloudSession } from "@/components/cloud/CloudSession";
+import { useCourses } from "@/components/courses/useCourses";
+import CourseContextBanner from "./CourseContextBanner";
 import type { LayoutSettings } from "@/lib/omr/schema";
 import DebugDrawer, { IssueList } from "./DebugDrawer";
 import QuickPresets from "./QuickPresets";
@@ -55,8 +62,22 @@ export default function SheetDesigner() {
 
   const [sharedBanner, setSharedBanner] = useState<{ kind: "ok" | "warn"; name?: string; saved?: boolean; error?: string } | null>(null);
 
+  // Designing inside a course: `?courseId=` (and optionally `?sectionId=`), read after hydration like `?form=` below.
+  const cloud = useCloudSession();
+  const [courseCtx, setCourseCtx] = useState<{ courseId: string; sectionId: string | null } | null>(null);
+  const { courses, loaded: coursesLoaded, source: courseSource } = useCourses();
+  const course = courseCtx ? courses.find((c) => c.id === courseCtx.courseId) ?? null : null;
+  const scope = course && courseCtx?.sectionId && course.sections.some((s) => s.id === courseCtx.sectionId) ? courseCtx.sectionId : null;
+  const courseMissing = !!courseCtx && coursesLoaded && !course;
+  const courseLine = useRef<{ title: string; subtitle: string } | null>(null);
+  const filledFor = useRef<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState<string | null>(null);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+
   // Stable random template id + optional shared `?form=` import after hydration (keeps SSR output deterministic).
   useEffect(() => {
+    setCourseCtx(parseCourseParams(window.location.search));
     const rawForm = new URLSearchParams(window.location.search).get("form");
     const decoded = rawForm ? decodeSharedForm(rawForm) : null;
     if (decoded) {
@@ -74,6 +95,84 @@ export default function SheetDesigner() {
     }
     setSettingsRaw((s) => (s.templateId === "tpl-draft" ? { ...s, templateId: `tpl-${crypto.randomUUID().slice(0, 8)}` } : s));
   }, []);
+
+  // Pre-fill the printed title and course line once the course is known. Never over a shared `?form=` or anything the teacher already typed.
+  useEffect(() => {
+    if (!course || filledFor.current === course.id) return;
+    filledFor.current = course.id;
+    if (edited.current) return;
+    const d = courseDesignDefaults(course, scope);
+    courseLine.current = d;
+    edited.current = true;
+    setSettingsRaw((s) => normalizeSettings({ ...s, ...d }));
+  }, [course, scope]);
+
+  // The sheet being designed belongs to this course: remembered by its template id so printing / saving files it there.
+  useEffect(() => {
+    if (!course || settings.templateId === "tpl-draft") return;
+    writeCourseBinding({ templateId: settings.templateId, courseId: course.id, sectionId: scope });
+  }, [course, scope, settings.templateId]);
+  // On this device (no workspace) the library entry is made when the sheet is printed.
+  useEffect(() => {
+    if (!course || courseSource !== "local") return;
+    const onPrinted = () => {
+      const t = readStoredTemplate();
+      if (t && t.templateId === settings.templateId) upsertLocalExam(t, { courseId: course.id, sectionId: scope });
+    };
+    window.addEventListener(SHEET_PRINTED_EVENT, onPrinted);
+    return () => window.removeEventListener(SHEET_PRINTED_EVENT, onPrinted);
+  }, [course, scope, courseSource, settings.templateId]);
+
+  function changeScope(next: string | null) {
+    if (!course) return;
+    setCourseCtx((c) => (c ? { ...c, sectionId: next } : c));
+    const url = new URL(window.location.href);
+    if (next) url.searchParams.set("sectionId", next); else url.searchParams.delete("sectionId");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+    // keep the course line in step with the scope, unless the teacher has edited it since it was filled in
+    const prev = courseLine.current;
+    if (prev && settings.subtitle === prev.subtitle) {
+      const d = courseDesignDefaults(course, next);
+      courseLine.current = { ...prev, subtitle: d.subtitle };
+      setSettingsRaw((s) => normalizeSettings({ ...s, subtitle: d.subtitle }));
+    }
+  }
+
+  async function applyCourseSections(sectionIds: string[]) {
+    if (!course || !result || !canExport) {
+      setBulkError("Fix the sheet layout errors before applying to sections.");
+      return;
+    }
+    setBulkBusy(true);
+    setBulkError(null);
+    setBulkStatus(null);
+    try {
+      const baseName = settings.title.trim() || `${course.code} Examination`;
+      const storedPlan = readStoredPlan();
+      const matchingPlan = storedPlan && storedPlan.templateId === result.template.templateId && storedPlan.tos.totalQuestions === result.template.questionCount ? storedPlan : null;
+      if (courseSource === "cloud" && cloud?.workspace.access === "member") {
+        await cloud.applyExamsToSections({
+          courseId: course.id,
+          sectionIds,
+          baseName,
+          template: result.template,
+          plan: matchingPlan,
+        });
+      } else {
+        applyDesignToLocalSections({
+          courseId: course.id,
+          sectionIds,
+          baseName,
+          template: result.template,
+        });
+      }
+      setBulkStatus(`Applied "${baseName}" to ${sectionIds.length} ${sectionIds.length === 1 ? "section" : "sections"}.`);
+    } catch (e) {
+      setBulkError((e as { data?: { message?: string } })?.data?.message ?? (e as Error)?.message ?? String(e));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
 
   const deferred = useDeferredValue(settings);
   const outcome = useMemo((): { result: LayoutResult } | { error: string } => {
@@ -158,6 +257,22 @@ export default function SheetDesigner() {
           </div>
           <ActiveExamBar />
         </header>
+
+        {course && (
+          <CourseContextBanner
+            course={course}
+            sectionId={scope}
+            onSection={changeScope}
+            canBulkApply={canExport}
+            bulkBusy={bulkBusy}
+            bulkStatus={bulkStatus}
+            bulkError={bulkError}
+            onBulkApply={applyCourseSections}
+          />
+        )}
+        {courseMissing && (
+          <p role="status" data-testid="course-context-missing" className="v-panel px-4 py-3 text-sm">That course is not available, so this exam is being designed outside a course.</p>
+        )}
 
         {sharedBanner && (
           <div

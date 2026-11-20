@@ -4,6 +4,7 @@
  * archive/restore them, and delete them even without a Convex cloud connection.
  */
 import type { DashboardRow } from "@/lib/dashboard";
+import { formatSectionExamName, parseSavedCourses, validateBulkSectionTargets, type SavedCourse } from "@/lib/courses/courses";
 import type { OMRTemplate } from "@/lib/omr/schema";
 import { TEMPLATE_CHANGED_EVENT } from "@/lib/active-exam";
 import { readStoredKey, readStoredTemplate, TEMPLATE_STORAGE_KEY, writeStoredKey, writeStoredTemplate } from "@/lib/storage/template-store";
@@ -24,6 +25,10 @@ export interface LocalExamRecord {
   name: string;
   template: OMRTemplate;
   folderId: string | null;
+  /** course this exam is filed under; absent on exams saved before courses existed */
+  courseId?: string | null;
+  /** null / absent inside a course = All sections */
+  sectionId?: string | null;
   archivedAt: number | null;
   createdAt: number;
   updatedAt: number;
@@ -60,6 +65,14 @@ function writeJson(key: string, value: unknown): void {
   }
 }
 
+function writeJsonStrict(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    throw new Error("Browser storage is full. Delete an old exam or free up space before saving.");
+  }
+}
+
 function notifyLibraryChanged(): void {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(TEMPLATE_CHANGED_EVENT));
@@ -81,7 +94,7 @@ export function createLocalFolder(input: { name: string; semester: string; schoo
     throw new Error("A folder with this name already exists.");
   }
   const folder: LocalFolder = { id: uid("fld"), name, semester, schoolYear, createdAt: Date.now() };
-  writeJson(LOCAL_FOLDERS_KEY, [folder, ...existing]);
+  writeJsonStrict(LOCAL_FOLDERS_KEY, [folder, ...existing]);
   notifyLibraryChanged();
   return folder;
 }
@@ -96,6 +109,23 @@ export function deleteLocalFolder(folderId: string): void {
   notifyLibraryChanged();
 }
 
+/** A new course binding when one is given (a section only makes sense inside a course); otherwise the exam keeps its own. */
+function courseBinding(opts: { courseId?: string | null; sectionId?: string | null }, cur: LocalExamRecord): Pick<LocalExamRecord, "courseId" | "sectionId"> {
+  if (opts.courseId === undefined) return { courseId: cur.courseId ?? null, sectionId: cur.sectionId ?? null };
+  return { courseId: opts.courseId, sectionId: opts.courseId ? opts.sectionId ?? null : null };
+}
+
+/** Exams of this course (or of one of its sections) that are stored on this device. */
+export const countLocalCourseExams = (courseId: string, sectionId?: string): number =>
+  readJson<LocalExamRecord[]>(LOCAL_EXAMS_KEY, []).filter((e) => e.courseId === courseId && (sectionId === undefined || e.sectionId === sectionId)).length;
+
+/** Deleting a course keeps its exams (and everything graded on them); they simply become unfiled. */
+export function unassignLocalCourseExams(courseId: string): void {
+  const now = Date.now();
+  writeJson(LOCAL_EXAMS_KEY, readJson<LocalExamRecord[]>(LOCAL_EXAMS_KEY, []).map((e) => (e.courseId === courseId ? { ...e, courseId: null, sectionId: null, updatedAt: now } : e)));
+  notifyLibraryChanged();
+}
+
 export function listLocalExams(): LocalExamRecord[] {
   const list = readJson<LocalExamRecord[]>(LOCAL_EXAMS_KEY, []);
   return [...list].sort((a, b) => b.createdAt - a.createdAt);
@@ -103,7 +133,7 @@ export function listLocalExams(): LocalExamRecord[] {
 
 export function upsertLocalExam(
   template: OMRTemplate,
-  opts: { name?: string; folderId?: string | null } = {},
+  opts: { name?: string; folderId?: string | null; courseId?: string | null; sectionId?: string | null } = {},
 ): LocalExamRecord {
   const exams = readJson<LocalExamRecord[]>(LOCAL_EXAMS_KEY, []);
   const now = Date.now();
@@ -115,6 +145,7 @@ export function upsertLocalExam(
       name,
       template,
       folderId: opts.folderId !== undefined ? opts.folderId : exams[idx].folderId,
+      ...courseBinding(opts, exams[idx]),
       updatedAt: now,
     };
     const next = [...exams];
@@ -127,6 +158,8 @@ export function upsertLocalExam(
     name,
     template,
     folderId: opts.folderId ?? null,
+    courseId: opts.courseId ?? null,
+    sectionId: opts.courseId ? opts.sectionId ?? null : null,
     archivedAt: null,
     createdAt: now,
     updatedAt: now,
@@ -147,13 +180,15 @@ export function duplicateLocalExam(examId: string, opts: { name?: string; folder
     name: copyName,
     template: clonedTemplate,
     folderId: opts.folderId !== undefined ? opts.folderId : src.folderId,
+    courseId: src.courseId ?? null,
+    sectionId: src.sectionId ?? null,
     archivedAt: null,
     createdAt: now,
     updatedAt: now,
   };
   const key = readStoredKey(src.template.layoutHash);
   if (key) writeStoredKey(clonedTemplate.layoutHash, key);
-  writeJson(LOCAL_EXAMS_KEY, [copy, ...exams]);
+  writeJsonStrict(LOCAL_EXAMS_KEY, [copy, ...exams]);
   notifyLibraryChanged();
   return copy;
 }
@@ -201,6 +236,53 @@ export function activateLocalExam(examId: string): LocalExamRecord | null {
     notifyLibraryChanged();
   }
   return exam;
+}
+
+/** Create one filed exam copy per checked course section from a template or existing local exam. */
+export function applyDesignToLocalSections(input: {
+  courseId: string;
+  sectionIds: readonly string[];
+  baseName?: string;
+  sourceExamId?: string | null;
+  template?: OMRTemplate | null;
+}): LocalExamRecord[] {
+  const courses = parseSavedCourses(readJson<unknown>("omr:courses", []));
+  const course: SavedCourse | undefined = courses.find((c) => c.id === input.courseId);
+  if (!course) throw new Error("Course not found.");
+  const targets = validateBulkSectionTargets(course, input.sectionIds);
+  if (!targets.ok) throw new Error(targets.error);
+
+  const exams = readJson<LocalExamRecord[]>(LOCAL_EXAMS_KEY, []);
+  const src = input.sourceExamId ? exams.find((e) => e.id === input.sourceExamId) : undefined;
+  if (input.sourceExamId && !src) throw new Error("Source exam design not found.");
+  const baseTemplate = src?.template ?? input.template;
+  if (!baseTemplate) throw new Error("Choose an exam design to apply.");
+
+  const rawBase = (input.baseName ?? src?.name ?? baseTemplate.title ?? "").trim() || baseTemplate.templateId || "Untitled exam";
+  const folderId = src?.folderId ?? null;
+  const srcKey = readStoredKey(baseTemplate.layoutHash);
+  const now = Date.now();
+
+  const created: LocalExamRecord[] = targets.value.map((sec) => {
+    const name = formatSectionExamName(rawBase, sec.name);
+    const tpl: OMRTemplate = { ...baseTemplate, title: name };
+    if (srcKey) writeStoredKey(tpl.layoutHash, srcKey);
+    return {
+      id: uid("exam"),
+      name,
+      template: tpl,
+      folderId,
+      courseId: course.id,
+      sectionId: sec.id,
+      archivedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  });
+
+  writeJsonStrict(LOCAL_EXAMS_KEY, [...created, ...exams]);
+  notifyLibraryChanged();
+  return created;
 }
 
 export function filterDashboardRows(

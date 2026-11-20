@@ -1,5 +1,6 @@
 /** Exams, their sheet templates and roster linkage. */
 import { v } from "convex/values";
+import { formatSectionExamName, MAX_SECTIONS, validateBulkSectionTargets } from "../src/lib/courses/courses";
 import { type AnswerKeyBody, answerKeyToBody, bodyToAnswerKey } from "../src/lib/cloud/convert";
 import { keyFromTemplate } from "../src/lib/grading/answer-key";
 import { OMRTemplateSchema } from "../src/lib/omr/schema";
@@ -20,6 +21,20 @@ async function checkSyllabus(ctx: MutationCtx, orgId: Id<"orgs">, syllabusId: Id
   return syl;
 }
 
+/** An exam is filed only under the caller's own course (and one of its sections, if one is named). */
+async function checkCourse(ctx: MutationCtx, orgId: Id<"orgs">, userId: Id<"users">, courseId?: Id<"courses">, sectionId?: string | null) {
+  if (!courseId) {
+    if (sectionId) fail("INVALID_COURSE", "Choose a course before choosing a section.");
+    return;
+  }
+  const course = await ctx.db.get(courseId);
+  if (!course || course.orgId !== orgId || course.createdBy !== userId) fail("NOT_FOUND", "Course not found.");
+  if (sectionId) {
+    atMost("The section id", sectionId, MAX.id);
+    if (!course.sections.some((s) => s.id === sectionId)) fail("NOT_FOUND", "Section not found in this course.");
+  }
+}
+
 async function checkFolder(ctx: MutationCtx, orgId: Id<"orgs">, folderId: Id<"examFolders">) {
   const folder = await ctx.db.get(folderId);
   if (!folder || folder.orgId !== orgId) fail("NOT_FOUND", "Folder not found in this school.");
@@ -36,14 +51,17 @@ export const create = mutation({
     /** OBE binding from the syllabus drop: syllabus, term, and the TOS question→outcome map */
     syllabusId: v.optional(v.id("syllabi")), examPeriod: v.optional(examPeriod), questionOutcomes: v.optional(v.array(questionOutcome)),
     folderId: v.optional(v.id("examFolders")),
+    /** file the exam under one of the caller's courses; no section (or null) = all of its sections */
+    courseId: v.optional(v.id("courses")), sectionId: v.optional(v.union(v.string(), v.null())),
   },
-  handler: async (ctx, { orgId, name, template, syllabusId, examPeriod: period, questionOutcomes, folderId }) => {
+  handler: async (ctx, { orgId, name, template, syllabusId, examPeriod: period, questionOutcomes, folderId, courseId, sectionId }) => {
     const { user } = await requireRole(ctx, orgId, "teacher");
     atMost("The exam name", name, MAX.name);
     atMostCount("question outcomes", questionOutcomes?.length ?? 0, MAX.outcomes);
     await rateLimit(ctx, user.tokenIdentifier, "exams.create");
     if (syllabusId) await checkSyllabus(ctx, orgId, syllabusId);
     if (folderId) await checkFolder(ctx, orgId, folderId);
+    await checkCourse(ctx, orgId, user._id, courseId, sectionId);
     const parsed = OMRTemplateSchema.safeParse(template);
     if (!parsed.success) fail("INVALID_TEMPLATE", parsed.error.issues.slice(0, 3).map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
     const t = parsed.data;
@@ -55,6 +73,7 @@ export const create = mutation({
     const examId = await ctx.db.insert("exams", {
       orgId, name: name.trim() || t.title, templateId, layoutHash: t.layoutHash, currentKeyVersion: 1, revision: 1, status: "open", createdBy: user._id,
       ...(syllabusId ? { syllabusId } : {}), ...(period ? { examPeriod: period } : {}), ...(folderId ? { folderId } : {}),
+      ...(courseId ? { courseId, ...(sectionId ? { sectionId } : {}) } : {}),
     });
     let key = keyFromTemplate(t, examId);
     if (questionOutcomes?.length) {
@@ -81,6 +100,8 @@ export const listByOrg = query({
       syllabusId: e.syllabusId ?? null,
       examPeriod: e.examPeriod ?? null,
       folderId: e.folderId ?? null,
+      courseId: e.courseId ?? null,
+      sectionId: e.sectionId ?? null,
       archivedAt: e.archivedAt ?? null,
     }));
   },
@@ -151,7 +172,7 @@ export const bindSyllabus = mutation({
   },
 });
 
-/** Duplicate a set-up exam (template, latest answer key, syllabus/period, and folder) without copying student scans. */
+/** Duplicate a set-up exam (template, latest answer key, syllabus/period, folder and course) without copying student scans. */
 export const duplicate = mutation({
   args: {
     examId: v.id("exams"),
@@ -163,6 +184,10 @@ export const duplicate = mutation({
     await rateLimit(ctx, user.tokenIdentifier, "exams.create");
     const targetFolder = folderId === undefined ? exam.folderId : folderId ?? undefined;
     if (targetFolder) await checkFolder(ctx, exam.orgId, targetFolder);
+
+    // the copy stays in the course only when that course is the caller's own
+    const course = exam.courseId ? await ctx.db.get(exam.courseId) : null;
+    const keepCourse = !!course && course.createdBy === user._id;
 
     const copyName = (name?.trim() || `${exam.name} (Copy)`).slice(0, MAX.name);
     atMost("The exam name", copyName, MAX.name);
@@ -179,6 +204,7 @@ export const duplicate = mutation({
       ...(exam.syllabusId ? { syllabusId: exam.syllabusId } : {}),
       ...(exam.examPeriod ? { examPeriod: exam.examPeriod } : {}),
       ...(targetFolder ? { folderId: targetFolder } : {}),
+      ...(keepCourse && exam.courseId ? { courseId: exam.courseId, ...(exam.sectionId ? { sectionId: exam.sectionId } : {}) } : {}),
     });
 
     const curKey = await ctx.db
@@ -249,5 +275,111 @@ export const remove = mutation({
       await ctx.db.delete(an._id);
     }
     await ctx.db.delete(examId);
+  },
+});
+
+/** Create one filed exam copy per checked course section from a validated template JSON or existing exam. */
+export const applyToSections = mutation({
+  args: {
+    orgId: v.id("orgs"),
+    courseId: v.id("courses"),
+    sectionIds: v.array(v.string()),
+    baseName: v.optional(v.string()),
+    sourceExamId: v.optional(v.id("exams")),
+    templateJson: v.optional(v.string()),
+    syllabusId: v.optional(v.id("syllabi")),
+    examPeriod: v.optional(examPeriod),
+    questionOutcomes: v.optional(v.array(questionOutcome)),
+  },
+  handler: async (ctx, { orgId, courseId, sectionIds, baseName, sourceExamId, templateJson, syllabusId, examPeriod: period, questionOutcomes }) => {
+    const { user } = await requireRole(ctx, orgId, "teacher");
+    const course = await ctx.db.get(courseId);
+    if (!course || course.orgId !== orgId || course.createdBy !== user._id) fail("NOT_FOUND", "Course not found.");
+    atMostCount("sections", sectionIds.length, MAX_SECTIONS);
+    const targets = validateBulkSectionTargets({ sections: course.sections }, sectionIds);
+    if (!targets.ok) fail("INVALID_SECTION", targets.error);
+    if (baseName) atMost("The exam name", baseName, MAX.name);
+    atMostCount("question outcomes", questionOutcomes?.length ?? 0, MAX.outcomes);
+    await rateLimit(ctx, user.tokenIdentifier, "exams.create", undefined, targets.value.length);
+
+    let templateId: Id<"templates">;
+    let layoutHash: string;
+    let resolvedBase: string;
+    let clonedKeyBody: AnswerKeyBody | null = null;
+    let parsedTpl: ReturnType<typeof OMRTemplateSchema.parse> | null = null;
+    let boundSyllabus = syllabusId;
+    let boundPeriod = period;
+    let boundFolder: Id<"examFolders"> | undefined;
+
+    if (sourceExamId) {
+      const { exam } = await requireExam(ctx, sourceExamId, "teacher");
+      if (exam.orgId !== orgId) fail("NOT_FOUND", "Source exam not found in this school.");
+      templateId = exam.templateId;
+      layoutHash = exam.layoutHash;
+      resolvedBase = (baseName?.trim() || exam.name).slice(0, MAX.name);
+      boundSyllabus ??= exam.syllabusId;
+      boundPeriod ??= exam.examPeriod;
+      boundFolder = exam.folderId;
+
+      const curKey = await ctx.db.query("answerKeys").withIndex("by_exam_version", (q) => q.eq("examId", sourceExamId).eq("version", exam.currentKeyVersion)).unique();
+      if (curKey) {
+        const { _id, _creationTime, createdBy, examId: _e, version: _v, clientKeyId: _c, ...body } = curKey;
+        void _id; void _creationTime; void createdBy; void _e; void _v; void _c;
+        clonedKeyBody = body as AnswerKeyBody;
+      } else {
+        const tpl = await ctx.db.get(exam.templateId);
+        const parsed = tpl ? OMRTemplateSchema.safeParse(tpl.template) : null;
+        if (parsed?.success) parsedTpl = parsed.data;
+      }
+    } else if (templateJson) {
+      atMost("Template JSON", templateJson, 900_000);
+      let raw: unknown;
+      try { raw = JSON.parse(templateJson); } catch { fail("INVALID_TEMPLATE", "Template payload is not valid JSON."); }
+      const parsed = OMRTemplateSchema.safeParse(raw);
+      if (!parsed.success) fail("INVALID_TEMPLATE", parsed.error.issues.slice(0, 3).map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+      parsedTpl = parsed.data;
+      layoutHash = parsedTpl.layoutHash;
+      resolvedBase = (baseName?.trim() || parsedTpl.title || parsedTpl.templateId).slice(0, MAX.name);
+      const existingTpl = await ctx.db.query("templates").withIndex("by_org_hash", (q) => q.eq("orgId", orgId).eq("layoutHash", layoutHash)).first();
+      templateId = existingTpl?._id ?? await ctx.db.insert("templates", {
+        orgId, templateKey: parsedTpl.templateId, version: parsedTpl.version, layoutHash, title: parsedTpl.title, questionCount: parsedTpl.questionCount, template: parsedTpl, createdBy: user._id,
+      });
+    } else {
+      fail("INVALID_TEMPLATE", "Choose an exam design or template to apply.");
+    }
+
+    if (boundSyllabus) await checkSyllabus(ctx, orgId, boundSyllabus);
+
+    const examIds: Id<"exams">[] = [];
+    for (const sec of targets.value) {
+      const name = formatSectionExamName(resolvedBase, sec.name, MAX.name);
+      const examId = await ctx.db.insert("exams", {
+        orgId,
+        name,
+        templateId,
+        layoutHash,
+        currentKeyVersion: 1,
+        revision: 1,
+        status: "open",
+        createdBy: user._id,
+        courseId,
+        sectionId: sec.id,
+        ...(boundSyllabus ? { syllabusId: boundSyllabus } : {}),
+        ...(boundPeriod ? { examPeriod: boundPeriod } : {}),
+        ...(boundFolder ? { folderId: boundFolder } : {}),
+      });
+      if (clonedKeyBody) {
+        await ctx.db.insert("answerKeys", { examId, version: 1, ...clonedKeyBody, createdBy: user._id });
+      } else if (parsedTpl) {
+        let key = keyFromTemplate(parsedTpl, examId);
+        if (questionOutcomes?.length) {
+          const valid = questionOutcomes.filter((o) => key.questions.has(o.questionNumber));
+          key = { ...applyOutcomesToKey(key, valid as QuestionOutcome[]), version: 1 };
+        }
+        await ctx.db.insert("answerKeys", { examId, version: 1, ...answerKeyToBody(key), createdBy: user._id });
+      }
+      examIds.push(examId);
+    }
+    return { examIds, count: examIds.length };
   },
 });

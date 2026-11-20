@@ -78,7 +78,7 @@ export default function AccountMenu() {
   );
 
   const popover = open && (
-    <div role="menu" aria-label="Account menu" className="absolute right-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-950" data-testid="account-popover">
+    <div role="menu" aria-label="Account menu" className="v-select-popover absolute right-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-1rem)] overflow-hidden py-1" data-testid="account-popover">
       {signedIn && !denied && (
         <div className="border-b border-zinc-100 px-3 py-2.5 dark:border-zinc-800">
           <p className="truncate text-sm font-semibold">{name}</p>

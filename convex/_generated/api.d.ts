@@ -11,6 +11,7 @@
 import type * as admin from "../admin.js";
 import type * as analytics from "../analytics.js";
 import type * as classes from "../classes.js";
+import type * as courses from "../courses.js";
 import type * as examFolders from "../examFolders.js";
 import type * as exams from "../exams.js";
 import type * as grading from "../grading.js";
@@ -30,6 +31,7 @@ declare const fullApi: ApiFromModules<{
   admin: typeof admin;
   analytics: typeof analytics;
   classes: typeof classes;
+  courses: typeof courses;
   examFolders: typeof examFolders;
   exams: typeof exams;
   grading: typeof grading;

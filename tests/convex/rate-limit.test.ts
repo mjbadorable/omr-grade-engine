@@ -62,8 +62,8 @@ describe("rateLimit (unit)", () => {
 });
 
 describe("limits are generous enough for real classroom use", () => {
-  it("covers all ten protected actions", () => {
-    expect(Object.keys(LIMITS).sort()).toEqual(["classes.save", "examFolders.create", "exams.create", "grading.addOverrides", "grading.generateUploadUrl", "grading.submitScanBatch", "orgs.ensureDefault", "orgs.requestAccess", "syllabi.upsert", "users.store"]);
+  it("covers every protected action", () => {
+    expect(Object.keys(LIMITS).sort()).toEqual(["classes.save", "courses.create", "courses.edit", "examFolders.create", "exams.create", "grading.addOverrides", "grading.generateUploadUrl", "grading.submitScanBatch", "orgs.ensureDefault", "orgs.requestAccess", "syllabi.upsert", "users.store"]);
   });
   it("lets a teacher scan and upload a few hundred sheets (even a whole offline queue replaying) in ten minutes", () => {
     for (const b of ["grading.submitScanBatch", "grading.generateUploadUrl"] as const) {
@@ -112,6 +112,26 @@ describe("protected endpoints refuse the call past the limit", () => {
     const { t, teacher, orgId } = await world(); tight("exams.create");
     for (let i = 0; i < 3; i++) await code(teacher.mutation(api.exams.create, { orgId, name: `E${i}`, template: kit.template }));
     expect(await t.run(async (ctx) => (await ctx.db.query("exams").collect()).length)).toBe(1 + 2);       // the seed exam + the two allowed ones
+  });
+
+  it("exams.applyToSections charges one exams.create unit per target section", async () => {
+    const { t, teacher, orgId } = await world();
+    tight("exams.create");
+    const courseId = await teacher.mutation(api.courses.create, {
+      orgId, code: "HM 5", title: "Applied", semester: "1st Semester", sections: ["A", "B", "C"],
+    });
+    const course = await t.run((ctx) => ctx.db.get(courseId));
+    const ids = course!.sections.map((s) => s.id);
+    // 3 sections > max(2): refused cleanly without writing partial exams
+    expect(await code(teacher.mutation(api.exams.applyToSections, {
+      orgId, courseId, sectionIds: ids, templateJson: JSON.stringify(kit.template),
+    }))).toBe("RATE_LIMITED");
+    expect(await t.run(async (ctx) => (await ctx.db.query("exams").collect()).length)).toBe(1);
+    // 2 sections consumes both units, so the next single exam is refused
+    expect(await code(teacher.mutation(api.exams.applyToSections, {
+      orgId, courseId, sectionIds: ids.slice(0, 2), templateJson: JSON.stringify(kit.template),
+    }))).toBe("OK");
+    expect(await code(teacher.mutation(api.exams.create, { orgId, name: "Extra", template: kit.template }))).toBe("RATE_LIMITED");
   });
 
   it("one person's limit never blocks someone else", async () => {

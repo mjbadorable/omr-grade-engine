@@ -115,6 +115,10 @@ export const syllabusBody = {
 /** question → module / outcome produced by the Table of Specifications */
 export const questionOutcome = v.object({ questionNumber: v.number(), moduleNumber: v.number(), outcomeCode: v.union(v.string(), v.null()) });
 
+// ---- courses (src/lib/courses/courses.ts)
+/** a section is a name; `classId` optionally points at one of the teacher's saved classes (no student data is copied) */
+export const courseSection = v.object({ id: v.string(), name: v.string(), classId: v.optional(v.id("classes")) });
+
 // ---- governance (src/lib/admin)
 export const gradingFormula = v.object({ lectureWeight: v.number(), labWeight: v.number(), lectureMajorExamWeight: v.number(), labExamWeight: v.number() });
 export const adminAuditKind = v.union(v.literal("ROLE_CHANGE"), v.literal("POLICY_CHANGE"), v.literal("SYLLABUS_UPLOAD"), v.literal("SYLLABUS_DELETE"));

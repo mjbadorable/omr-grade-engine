@@ -40,13 +40,17 @@ export interface CloudSessionValue {
     access: "loading" | "member" | "none" | "pending" | "rejected";
     requestAccess: () => Promise<void>;
   };
-  exams: { _id: Id<"exams">; name: string; layoutHash: string; status: string; currentKeyVersion: number; examPeriod?: string | null; syllabusId?: Id<"syllabi"> | null; folderId?: Id<"examFolders"> | null; archivedAt?: number | null }[] | undefined;
+  exams: { _id: Id<"exams">; name: string; layoutHash: string; status: string; currentKeyVersion: number; examPeriod?: string | null; syllabusId?: Id<"syllabi"> | null; folderId?: Id<"examFolders"> | null; courseId?: Id<"courses"> | null; sectionId?: string | null; archivedAt?: number | null }[] | undefined;
+  /** the caller's own courses (undefined while loading or when not a workspace member) */
+  courses: { _id: Id<"courses">; code: string; title: string; semester: string; schoolYear: string | null; syllabusId: Id<"syllabi"> | null; sections: { id: string; name: string; classId: Id<"classes"> | null }[]; updatedAt: number }[] | undefined;
   selection: Selection;
   selectExam: (examId: Id<"exams"> | null) => void;
   /** template of the selected exam (validated), undefined while loading */
   examTemplate: OMRTemplate | null | undefined;
-  /** with a syllabus plan the exam is bound to the (saved or updated) syllabus and its TOS outcome codes */
-  createExam: (name: string, template: OMRTemplate, plan?: SyllabusPlan | null) => Promise<Id<"exams">>;
+  /** with a syllabus plan the exam is bound to the (saved or updated) syllabus and its TOS outcome codes; with a course it is filed there (section null = all sections) */
+  createExam: (name: string, template: OMRTemplate, plan?: SyllabusPlan | null, course?: { courseId: string; sectionId: string | null } | null) => Promise<Id<"exams">>;
+  /** create one filed exam copy per checked course section from a designer template */
+  applyExamsToSections: (input: { courseId: string; sectionIds: string[]; baseName: string; template: OMRTemplate; plan?: SyllabusPlan | null }) => Promise<Id<"exams">[]>;
   /** upload one scanned sheet (+ de-warped preview) to the selected exam */
   uploadScan: (s: { sheetId: string; result: ScanOutput; preview: Blob | null }) => Promise<ScanSubmitResult | null>;
   /** scans waiting in the outbox (kept for the existing queued-uploads badge) */
@@ -94,6 +98,7 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
     () => resolveCloudSelection({ ready, defaultOrgId: defaultOrg?._id ?? null, selection, exams }),
     [ready, defaultOrg, selection, exams],
   );
+  const courses = useQuery(api.courses.listMine, ready && defaultOrg ? { orgId: defaultOrg._id } : "skip");
   const examDoc = useQuery(api.exams.get, effectiveSelection.examId ? { examId: effectiveSelection.examId } : "skip");
   const examTemplate = useMemo(() => {
     if (examDoc === undefined) return effectiveSelection.examId ? undefined : null;
@@ -118,6 +123,7 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
   }, [exams, selection.examId]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const createExamM = useMutation(api.exams.create);
+  const applyToSectionsM = useMutation(api.exams.applyToSections);
   const upsertSyllabusM = useMutation(api.syllabi.upsert);
   const sync = useCloudOutbox(ready);
 
@@ -144,20 +150,38 @@ export function CloudSessionProvider({ authMode, children }: { authMode: string;
   const value: CloudSessionValue = {
     authMode, isLoading, isAuthenticated, me, access,
     signInDev: (t) => setDevToken(t), signOut: () => setDevToken(null),
-    orgs, exams, selection: effectiveSelection, examTemplate,
+    orgs, exams, courses, selection: effectiveSelection, examTemplate,
     workspace: {
       orgId: defaultOrg?._id ?? null, name: DEFAULT_ORG_NAME, role: (defaultOrg?.role as Role | undefined) ?? null, ready: !!defaultOrg,
       access: !ready || myAccess === undefined || !myAccess.orgId ? "loading" : defaultOrg || myAccess.role ? "member" : myAccess.request === "pending" ? "pending" : myAccess.request === "rejected" ? "rejected" : "none",
       requestAccess: async () => { await requestAccessM({}); },
     },
     selectExam: (examId) => persist({ ...selection, examId, layoutHash: exams?.find((e) => e._id === examId)?.layoutHash ?? null }),
-    createExam: async (name, template, plan) => {
+    createExam: async (name, template, plan, course) => {
       const orgId = selection.orgId!;
       const usePlan = plan && plan.tos.totalQuestions === template.questionCount ? plan : null;
       const syllabusId = usePlan ? await upsertSyllabusM({ orgId, syllabus: usePlan.syllabus }) : undefined;
-      const id = await createExamM({ orgId, name, template, ...(usePlan && syllabusId ? { syllabusId, examPeriod: usePlan.period, questionOutcomes: usePlan.assignments } : {}) });
+      const id = await createExamM({
+        orgId, name, template,
+        ...(usePlan && syllabusId ? { syllabusId, examPeriod: usePlan.period, questionOutcomes: usePlan.assignments } : {}),
+        ...(course ? { courseId: course.courseId as Id<"courses">, sectionId: course.sectionId } : {}),
+      });
       persist({ ...selection, examId: id, layoutHash: template.layoutHash });
       return id;
+    },
+    applyExamsToSections: async ({ courseId, sectionIds, baseName, template, plan }) => {
+      const orgId = selection.orgId!;
+      const usePlan = plan && plan.tos.totalQuestions === template.questionCount ? plan : null;
+      const syllabusId = usePlan ? await upsertSyllabusM({ orgId, syllabus: usePlan.syllabus }) : undefined;
+      const res = await applyToSectionsM({
+        orgId,
+        courseId: courseId as Id<"courses">,
+        sectionIds,
+        baseName,
+        templateJson: JSON.stringify(template),
+        ...(usePlan && syllabusId ? { syllabusId, examPeriod: usePlan.period, questionOutcomes: usePlan.assignments } : {}),
+      });
+      return res.examIds;
     },
     uploadScan, pendingUploads: sync.pendingOps.filter((o) => o.kind === "UPLOAD_SCAN").length, sync,
   };

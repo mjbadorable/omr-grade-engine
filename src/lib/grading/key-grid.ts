@@ -50,3 +50,12 @@ export function toggleRowBubble(row: GridRow, p: number): Partial<QuestionRule> 
 }
 
 export const keyedCount = (key: AnswerKey) => [...key.questions.values()].filter((r) => r.type === "choice" && r.correct.length > 0).length;
+
+/**
+ * Minimum width (rem) of one answer-key row track: row number, N option bubbles, the ★ bonus button and the
+ * "any" pill (all size-7 / gap-1 in KeyEditor). Never narrower than a 4-option (A–D) row.
+ */
+export function gridTrackRem(maxOptions: number): number {
+  const n = Math.max(4, Math.floor(maxOptions) || 0);
+  return 6.5 + 2 * n;
+}

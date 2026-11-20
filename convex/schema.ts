@@ -7,7 +7,7 @@
  */
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { adminAuditKind, answerKeyBody, compactReadouts, decodedFields, examPeriod, gradingFormula, originalState, overriddenOption, overrideTarget, role, student, syllabusBody } from "./validators";
+import { adminAuditKind, answerKeyBody, compactReadouts, courseSection, decodedFields, examPeriod, gradingFormula, originalState, overriddenOption, overrideTarget, role, student, syllabusBody } from "./validators";
 
 export default defineSchema({
   users: defineTable({
@@ -117,6 +117,20 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_org_owner", ["orgId", "createdBy"]),
 
+  /** Courses (convex/courses.ts): a subject in a term with named sections; private to the teacher who made it. */
+  courses: defineTable({
+    orgId: v.id("orgs"),
+    code: v.string(),
+    title: v.string(),
+    semester: v.string(),
+    schoolYear: v.optional(v.string()),
+    syllabusId: v.optional(v.id("syllabi")),
+    sections: v.array(courseSection),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_org_owner", ["orgId", "createdBy"]),
+
   examFolders: defineTable({
     orgId: v.id("orgs"),
     name: v.string(),
@@ -140,10 +154,13 @@ export default defineSchema({
     syllabusId: v.optional(v.id("syllabi")),
     examPeriod: v.optional(examPeriod),
     folderId: v.optional(v.id("examFolders")),
+    /** course this exam is filed under; sectionId absent = all of the course's sections */
+    courseId: v.optional(v.id("courses")),
+    sectionId: v.optional(v.string()),
     archivedAt: v.optional(v.number()),
     archivedBy: v.optional(v.id("users")),
     createdBy: v.id("users"),
-  }).index("by_org", ["orgId"]).index("by_org_hash", ["orgId", "layoutHash"]).index("by_folder", ["orgId", "folderId"]),
+  }).index("by_org", ["orgId"]).index("by_org_hash", ["orgId", "layoutHash"]).index("by_folder", ["orgId", "folderId"]).index("by_course", ["orgId", "courseId"]),
 
   answerKeys: defineTable({
     examId: v.id("exams"),

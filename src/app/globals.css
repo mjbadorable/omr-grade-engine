@@ -154,6 +154,18 @@
 
 @layer base {
   h1, h2, h3 { letter-spacing: -0.025em; }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  select:not(:disabled),
+  summary {
+    cursor: pointer;
+  }
+  button:disabled,
+  [role="button"][aria-disabled="true"],
+  select:disabled {
+    cursor: not-allowed;
+  }
 }
 html { background: var(--bg); }
 body {
@@ -184,8 +196,11 @@ body {
     display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem;
     border: 1px solid var(--border); background: var(--surface); color: var(--fg);
     border-radius: 0.375rem; padding: 0.375rem 0.75rem; font-size: 0.875rem; line-height: 1.25rem; font-weight: 500;
+    cursor: pointer;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
   }
   .v-btn:hover:not(:disabled) { border-color: var(--brand-soft); background: var(--brand-tint); }
+  .v-btn:active:not(:disabled) { transform: translateY(1px); }
   .v-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .v-btn-primary { border-color: var(--brand); background: var(--brand); color: #fff; font-weight: 600; }
   .v-btn-primary:hover:not(:disabled) { border-color: var(--brand-hover); background: var(--brand-hover); }
@@ -198,6 +213,42 @@ body {
   .v-badge-gold { background: var(--gold-tint); color: var(--gold-hover); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 40%, transparent); }
   .v-badge-ok { background: color-mix(in srgb, var(--ok-color) 16%, transparent); color: var(--ok-text); }
   .v-badge-warn { background: color-mix(in srgb, var(--warn-color) 16%, transparent); color: var(--warn-text); }
+  /* 3D crystal select trigger & frosted floating popover */
+  .v-select-trigger {
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--surface) 0%, color-mix(in srgb, var(--surface) 90%, var(--bg)) 100%);
+    color: var(--fg);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 2px rgba(20, 21, 26, 0.06);
+    transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+  }
+  .v-select-trigger:hover:not(:disabled) {
+    border-color: var(--brand-soft);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 4px 10px -4px rgba(142, 27, 32, 0.14);
+  }
+  .v-select-trigger.is-open {
+    border-color: var(--gold);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 0 0 3px color-mix(in srgb, var(--gold) 22%, transparent);
+  }
+  :where([data-theme="dark"], [data-theme="dark"] *) .v-select-trigger {
+    background: linear-gradient(180deg, rgba(30, 33, 44, 0.96) 0%, rgba(20, 22, 29, 0.98) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 2px 5px rgba(0, 0, 0, 0.35);
+  }
+  .v-select-popover {
+    border-radius: 0.875rem;
+    border: 1px solid var(--panel-border);
+    background: rgba(255, 255, 255, 0.95);
+    -webkit-backdrop-filter: blur(18px) saturate(135%);
+    backdrop-filter: blur(18px) saturate(135%);
+    box-shadow: 0 20px 44px -12px rgba(20, 21, 26, 0.22), 0 4px 14px -2px rgba(20, 21, 26, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    animation: v-pop 150ms cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: top center;
+  }
+  .v-select-popover[data-flip="up"] { transform-origin: bottom center; }
+  :where([data-theme="dark"], [data-theme="dark"] *) .v-select-popover {
+    background: rgba(22, 24, 31, 0.94);
+    border-color: rgba(255, 255, 255, 0.12);
+    box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.72), inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  }
   /* crystal surface: translucent shell, beveled edge, soft elevation. Text, tables and inputs inside stay opaque. */
   .v-panel {
     border: 1px solid var(--panel-border); border-radius: 1rem;
@@ -234,6 +285,11 @@ body {
     background: var(--surface); color: var(--brand); font-weight: 600;
     box-shadow: 0 1px 2px rgb(0 0 0 / 0.08), 0 0 0 1px color-mix(in srgb, var(--gold) 50%, transparent);
   }
+}
+
+@keyframes v-pop {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 dialog::backdrop { background: rgba(13, 14, 18, 0.62); backdrop-filter: blur(3px); }

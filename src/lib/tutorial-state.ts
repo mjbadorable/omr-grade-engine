@@ -4,11 +4,11 @@ export const TUTORIAL_AUTO_KEY = "veritas_tutorial_auto_v1";
 export const OPEN_GUIDE_EVENT = "veritas:open-guide";
 export const ACK_ACCEPTED_EVENT = "veritas:ack-accepted";
 
-export const CATEGORIES = ["design", "scan", "grade", "admin"] as const;
+export const CATEGORIES = ["dashboard", "design", "scan", "grade", "admin"] as const;
 export type TutorialCategory = (typeof CATEGORIES)[number];
 export type SeenMap = Record<TutorialCategory, boolean>;
 
-const EMPTY: SeenMap = { design: false, scan: false, grade: false, admin: false };
+const EMPTY: SeenMap = { dashboard: false, design: false, scan: false, grade: false, admin: false };
 type R = Pick<Storage, "getItem">;
 type W = Pick<Storage, "setItem">;
 const browserStore = (): Storage | null => { try { return typeof localStorage === "undefined" ? null : localStorage; } catch { return null; } };
@@ -17,7 +17,8 @@ const browserStore = (): Storage | null => { try { return typeof localStorage ==
 export function categoryForPath(path: string | null | undefined): TutorialCategory | null {
   if (!path) return null;
   const p = path.split("?")[0].replace(/\/+$/, "") || "/";
-  if (p === "/" || p.startsWith("/designer")) return "design";
+  if (p === "/") return "dashboard";
+  if (p.startsWith("/designer")) return "design";
   if (p.startsWith("/scan")) return "scan";
   if (p.startsWith("/grade")) return "grade";
   if (p.startsWith("/admin")) return "admin";

@@ -1,28 +1,28 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { isCompactViewport, pickTarget, placePopover, samePage, scrollDeltaForDock, spotlightBox, startIndex, tourSteps } from "@/lib/tutorial-tour";
+import { isCompactViewport, isTyping, pickTarget, widgetOwnsEscape, placePopover, samePage, scrollDeltaForDock, spotlightBox, startIndex, tourSteps } from "@/lib/tutorial-tour";
 
 const KNOWN_ROUTES = ["/", "/designer", "/scan", "/grade", "/admin"];
 
 describe("tourSteps", () => {
-  it("walks Design, Scan, Grade and (for admins only) Admin, in that order", () => {
+  it("walks Dashboard, Design, Scan, Grade and (for admins only) Admin, in that order", () => {
     const cats = (admin: boolean) => [...new Set(tourSteps(admin).map((s) => s.category))];
-    expect(cats(true)).toEqual(["design", "scan", "grade", "admin"]);
-    expect(cats(false)).toEqual(["design", "scan", "grade"]);
+    expect(cats(true)).toEqual(["dashboard", "design", "scan", "grade", "admin"]);
+    expect(cats(false)).toEqual(["dashboard", "design", "scan", "grade"]);
   });
 
   it("never includes an admin step for a non-admin (no surprise trip to an Admins-only screen)", () => {
     expect(tourSteps(false).some((s) => s.route.startsWith("/admin"))).toBe(false);
   });
 
-  it("has 4 + 4 + 4 steps for teachers and 3 more for admins", () => {
-    expect(tourSteps(false)).toHaveLength(12);
-    expect(tourSteps(true)).toHaveLength(15);
+  it("has 4 + 3 + 4 + 4 steps for teachers and 3 more for admins", () => {
+    expect(tourSteps(false)).toHaveLength(15);
+    expect(tourSteps(true)).toHaveLength(18);
   });
 
   it("opens on the Dashboard", () => {
-    expect(tourSteps(false)[0]).toMatchObject({ category: "design", route: "/" });
+    expect(tourSteps(false)[0]).toMatchObject({ category: "dashboard", route: "/", id: "dashboard-1" });
   });
 
   it("gives every step a real route, a title, a body and at least one selector", () => {
@@ -36,7 +36,7 @@ describe("tourSteps", () => {
 
   it("shows the Pro Tip once per category, on its last step", () => {
     const steps = tourSteps(true);
-    for (const c of ["design", "scan", "grade", "admin"] as const) {
+    for (const c of ["dashboard", "design", "scan", "grade", "admin"] as const) {
       const mine = steps.filter((s) => s.category === c);
       expect(mine.filter((s) => s.tip).map((s) => s.id)).toEqual([mine[mine.length - 1].id]);
     }
@@ -98,11 +98,13 @@ describe("startIndex", () => {
   const steps = tourSteps(true);
   const here = (pathname: string, search = "") => ({ pathname, search });
   it("starts a category on the first step that lives on the page you are already on", () => {
-    expect(steps[startIndex(steps, "design", here("/designer"))]).toMatchObject({ category: "design", route: "/designer" });
-    expect(steps[startIndex(steps, "design", here("/"))].route).toBe("/");
+    expect(steps[startIndex(steps, "design", here("/designer"))]).toMatchObject({ category: "design", route: "/designer", id: "design-1" });
+    expect(steps[startIndex(steps, "dashboard", here("/"))]).toMatchObject({ category: "dashboard", id: "dashboard-1" });
+    expect(steps[startIndex(steps, "grade", here("/grade", "?tab=key"))].id).toBe("grade-1");
   });
   it("otherwise starts on the category's first step", () => {
     expect(startIndex(steps, "scan", here("/"))).toBe(steps.findIndex((s) => s.category === "scan"));
+    expect(steps[startIndex(steps, "design", here("/"))]).toMatchObject({ category: "design", id: "design-1" });
   });
   it("falls back to the very first step when the category has no steps (e.g. admin for a teacher)", () => {
     const teacher = tourSteps(false);
@@ -188,5 +190,80 @@ describe("scrollDeltaForDock", () => {
   });
   it("scrolls up when the target sits above the visible area", () => {
     expect(scrollDeltaForDock({ top: 10, left: 0, width: 300, height: 50 }, H, dock, 56)).toBe(10 - 72);
+  });
+});
+
+describe("isTyping (keys that must not step the tour)", () => {
+  const el = (tagName: string, extra: Record<string, unknown> = {}) => ({ tagName, isContentEditable: false, closest: () => null, ...extra });
+  const inside = (role: string) => el("BUTTON", { closest: (sel: string) => (sel.includes(`[role="${role}"]`) ? {} : null) });
+  it("treats form fields and editable text as typing", () => {
+    for (const t of ["INPUT", "TEXTAREA", "SELECT"]) expect(isTyping(el(t))).toBe(true);
+    expect(isTyping(el("DIV", { isContentEditable: true }))).toBe(true);
+  });
+  it("treats the custom Select and the row menus as interactive (combobox, listbox, option, menu, menuitem)", () => {
+    for (const r of ["combobox", "listbox", "option", "menu", "menuitem"]) expect(isTyping(inside(r)), r).toBe(true);
+  });
+  it("lets plain buttons, links and the page itself step the tour", () => {
+    expect(isTyping(el("BUTTON"))).toBe(false);
+    expect(isTyping(el("A"))).toBe(false);
+    expect(isTyping(null)).toBe(false);
+    expect(isTyping(undefined)).toBe(false);
+    expect(isTyping({})).toBe(false);
+  });
+});
+
+describe("widgetOwnsEscape (Escape closes an open dropdown or menu, not the tour as well)", () => {
+  const inPopup = { tagName: "BUTTON", closest: (sel: string) => (sel.includes('[role="menu"]') || sel.includes('[role="listbox"]') ? {} : null) };
+  const plain = { tagName: "BUTTON", closest: () => null };
+  it("is true when the key was already handled (the Select calls preventDefault)", () => {
+    expect(widgetOwnsEscape({ defaultPrevented: true, target: plain })).toBe(true);
+  });
+  it("is true inside an open menu or listbox", () => {
+    expect(widgetOwnsEscape({ defaultPrevented: false, target: inPopup })).toBe(true);
+  });
+  it("is false on the page, in a text field, or on a closed Select, so Escape still closes the tour", () => {
+    expect(widgetOwnsEscape({ defaultPrevented: false, target: plain })).toBe(false);
+    expect(widgetOwnsEscape({ defaultPrevented: false, target: { tagName: "INPUT", closest: () => null } })).toBe(false);
+    expect(widgetOwnsEscape({})).toBe(false);
+  });
+});
+
+describe("TutorialModal", () => {
+  const modal = readFileSync(join(process.cwd(), "src/components/brand/TutorialModal.tsx"), "utf8");
+  it("uses the shared isTyping check for its arrow keys", () => {
+    expect(modal).toMatch(/import \{[^}]*\bisTyping\b[^}]*\} from "@\/lib\/tutorial-tour"/);
+    expect(modal).toMatch(/if \(isTyping\(e\.target\)/);
+    expect(modal).toMatch(/if \(e\.key === "Escape"\) \{ if \(widgetOwnsEscape\(e\)\) return;/);
+  });
+  it("labels every category, including Dashboard, and keeps 44px touch targets on the pills", () => {
+    expect(modal).toMatch(/CATEGORY_LABEL[^=]*= \{ dashboard: "Dashboard", design: "Design", scan: "Scan", grade: "Grade", admin: "Admin" \}/);
+    const pill = /data-testid=\{`tour-cat-\$\{c\}`\}[\s\S]*?className=\{`([^`]*)`/.exec(modal);
+    expect(pill?.[1]).toContain("[@media(pointer:coarse)]:min-h-11");
+  });
+  it("keeps 44px touch targets on the footer buttons and the auto-open checkbox row too", () => {
+    const COARSE = "[@media(pointer:coarse)]:min-h-11";
+    const classOf = (anchor: string) => { const at = modal.indexOf(anchor); return at < 0 ? "" : /className="([^"]*)"/.exec(modal.slice(at, at + 400))?.[1] ?? ""; };
+    expect(classOf('data-testid="tutorial-done" className')).toContain(COARSE);          // Skip
+    expect(classOf('aria-label="Previous step"')).toContain(COARSE);
+    expect(classOf('aria-label="Next step"')).toContain(COARSE);
+    expect(/<label className="[^"]*\[@media\(pointer:coarse\)\]:min-h-11[^"]*">\s*<input id="tutorial-auto-off"/.test(modal)).toBe(true);
+    expect(modal.match(/data-testid="tutorial-done"/g)).toHaveLength(2);                  // Skip and Finish
+  });
+  it("paints the Next / Finish buttons with the accessible solid brand (white on it is at least 4.5:1 in both themes)", () => {
+    const primary = [...modal.matchAll(/className="([^"]*v-btn-primary[^"]*)"/g)].map((m) => m[1]);
+    expect(primary).toHaveLength(2);
+    for (const c of primary) expect(c).toContain("bg-[var(--brand-solid)] text-white");
+  });
+  it("draws every icon the guide uses", () => {
+    for (const s of tourSteps(true)) expect(modal, s.icon).toMatch(new RegExp(`\\b${s.icon}: `));
+  });
+});
+
+/** Copy that names a control must name one that exists. */
+describe("tour copy names real controls", () => {
+  const read = (f: string) => readFileSync(join(process.cwd(), f), "utf8");
+  const ui = ["src/components/courses/Courses.tsx", "src/components/dashboard/Dashboard.tsx", "src/components/designer/CourseContextBanner.tsx", "src/components/grading/GradeApp.tsx", "src/components/grading/KeyEditor.tsx", "src/components/grading/RosterPanel.tsx"].map(read).join("\n") + read("src/lib/grading/grade-scales.ts") + read("src/lib/dashboard.ts");
+  it.each(["Open Gradebook", "Scan Sheets", "Print Sheet PDF", "Copy", "Archive", "Restore", "Delete", "View All", "Select all", "Import a class roster", "+ Add Course", "Edit Course", "Bulk Apply to Sections", "For Grading", "View Gradebook", "Scan & Upload", "Reports →", "USA Grading", "Grading Scale &amp; Key Tools"])("%s", (label) => {
+    expect(ui).toContain(label);
   });
 });

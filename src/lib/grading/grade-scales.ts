@@ -10,7 +10,7 @@ import { DEFAULT_GRADE_BANDS } from "./answer-key";
 import type { GradeBand } from "./types";
 
 export interface CutoffRow { label: string; /** whole percent the grade starts at, as the teacher reads it */ from: number }
-export type ScaleId = "letter" | "percent" | "ph";
+export type ScaleId = "letter" | "percent" | "ph" | "usa";
 export type DetectedScale = { id: ScaleId | "custom"; rounded: boolean };
 
 export const MAX_ROWS = 30;
@@ -22,6 +22,15 @@ export const PH_ROWS: CutoffRow[] = [
   { label: "2.00", from: 84 }, { label: "2.25", from: 80 }, { label: "2.50", from: 78 }, { label: "2.75", from: 76 },
   { label: "3.00", from: 75 }, { label: "5.00", from: 0 },
 ];
+/** University of San Agustin 1.0–5.0 grade points (3.0 = 75% passing cutoff, 5.0 below 75%). Whole-percent cutoffs, highest first. */
+export const USA_ROWS: CutoffRow[] = [
+  { label: "1.0", from: 100 }, { label: "1.1", from: 99 }, { label: "1.2", from: 97 }, { label: "1.3", from: 96 },
+  { label: "1.4", from: 95 }, { label: "1.5", from: 94 }, { label: "1.6", from: 93 }, { label: "1.7", from: 91 },
+  { label: "1.8", from: 90 }, { label: "1.9", from: 89 }, { label: "2.0", from: 88 }, { label: "2.1", from: 86 },
+  { label: "2.2", from: 85 }, { label: "2.3", from: 84 }, { label: "2.4", from: 83 }, { label: "2.5", from: 81 },
+  { label: "2.6", from: 80 }, { label: "2.7", from: 79 }, { label: "2.8", from: 78 }, { label: "2.9", from: 76 },
+  { label: "3.0", from: 75 }, { label: "5.0", from: 0 },
+];
 const LETTER_ROWS: CutoffRow[] = DEFAULT_GRADE_BANDS.map((b) => ({ label: b.label, from: b.minPercent })).sort((a, b) => b.from - a.from);
 const PERCENT_ROWS: CutoffRow[] = [{ label: "Passed", from: 60 }, { label: "Failed", from: 0 }];
 
@@ -29,6 +38,7 @@ export const SCALE_PRESETS: { id: ScaleId; name: string; rows: CutoffRow[]; roun
   { id: "letter", name: "Letter (A to F)", rows: LETTER_ROWS, rounded: false, hint: "A 90, B 80, C 70, D 60, F below." },
   { id: "percent", name: "Percent (Passed / Failed)", rows: PERCENT_ROWS, rounded: false, hint: "Passed from 60%. Edit the cutoff to your school's passing mark." },
   { id: "ph", name: "Philippine college (1.0 to 5.0)", rows: PH_ROWS, rounded: true, hint: "Percentage is rounded to a whole number, then stepped: 1.00 from 97% down to 3.00 at 75%; 5.00 below 75%." },
+  { id: "usa", name: "USA Grading (1.0 to 5.0)", rows: USA_ROWS, rounded: false, hint: "USA numeric grading scale: 1.0 (100%) down to 3.0 (75% passing cutoff); 5.0 below 75%." },
 ];
 
 const byFromDesc = (a: CutoffRow, b: CutoffRow) => b.from - a.from;

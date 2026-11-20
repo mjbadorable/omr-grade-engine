@@ -1,9 +1,10 @@
 "use client";
 
 import { memo, useState } from "react";
+import Select from "@/components/ui/Select";
 import { formatSetMappingText, parseSetMappingText, updateAllRules, updateKey, updateRule } from "@/lib/grading/answer-key";
 import type { AnswerKey, ItemStatistics, MatchMode, QuestionRule } from "@/lib/grading/types";
-import { gridRows, keyedCount, toggleRowBubble } from "@/lib/grading/key-grid";
+import { gridRows, gridTrackRem, keyedCount, toggleRowBubble } from "@/lib/grading/key-grid";
 import { QualityDot } from "./QualityBadge";
 import GradeScaleEditor from "./GradeScaleEditor";
 
@@ -49,11 +50,19 @@ const RuleRow = memo(function RuleRow({ rule, stat, onChange }: { rule: Question
       </td>
       <td className={`py-1 pr-2 ${dim}`}>
         {rule.type !== "numeric" && (
-          <select name="match-mode" aria-label="Match mode" className={`${input} text-xs`} value={rule.mode} onChange={(e) => onChange({ mode: e.target.value as MatchMode } as Partial<QuestionRule>)}>
-            <option value="ALL_MATCH">All match</option>
-            {rule.type === "choice" && <option value="ANY_MATCH">Any match</option>}
-            <option value="PARTIAL_CREDIT">Partial credit</option>
-          </select>
+          <Select
+            name="match-mode"
+            ariaLabel="Match mode"
+            size="sm"
+            className="w-28"
+            value={rule.mode}
+            options={[
+              { value: "ALL_MATCH", label: "All match" },
+              ...(rule.type === "choice" ? [{ value: "ANY_MATCH", label: "Any match" }] : []),
+              { value: "PARTIAL_CREDIT", label: "Partial credit" },
+            ]}
+            onChange={(v) => onChange({ mode: v as MatchMode } as Partial<QuestionRule>)}
+          />
         )}
       </td>
       <td className="py-1 pr-1"><input name="points" aria-label="Points" className={`${input} w-12`} type="number" min={0} step={0.25} value={rule.points} onChange={(e) => onChange({ points: Math.max(0, num(e.target.value, rule.points)) })} /></td>
@@ -110,10 +119,16 @@ export function ScoringRules({ answerKey, onChange, keySources, onExport, onImpo
           )}
         </div>
         <label className="block"><span className={label}>Uncertain / double marks</span>
-          <select name="conflict-policy" aria-label="Uncertain or double marks" className={`${input} w-full`} value={answerKey.conflictPolicy} onChange={(e) => onChange(updateKey(answerKey, { conflictPolicy: e.target.value as AnswerKey["conflictPolicy"] }))}>
-            <option value="zero">Hold for review (0 pts)</option>
-            <option value="score-filled">Score the filled bubbles</option>
-          </select>
+          <Select
+            name="conflict-policy"
+            ariaLabel="Uncertain or double marks"
+            value={answerKey.conflictPolicy}
+            options={[
+              { value: "zero", label: "Hold for review (0 pts)" },
+              { value: "score-filled", label: "Score the filled bubbles" },
+            ]}
+            onChange={(v) => onChange(updateKey(answerKey, { conflictPolicy: v as AnswerKey["conflictPolicy"] }))}
+          />
         </label>
       </section>
 
@@ -123,10 +138,14 @@ export function ScoringRules({ answerKey, onChange, keySources, onExport, onImpo
           <GradeScaleEditor bands={answerKey.gradeBands} onChange={(gradeBands) => onChange(updateKey(answerKey, { gradeBands }))} />
           {setLabels.length > 1 && <SetMappings answerKey={answerKey} onChange={onChange} />}
           {keySources.length > 0 && (
-            <select className={`${input} w-full`} value="" name="key-from-sheet" aria-label="Take key from a scanned sheet" onChange={(e) => keySources.find((s) => s.id === e.target.value)?.apply()}>
-              <option value="" disabled>Use a scanned sheet as key…</option>
-              {keySources.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
-            </select>
+            <Select
+              name="key-from-sheet"
+              ariaLabel="Take key from a scanned sheet"
+              value=""
+              placeholder="Use a scanned sheet as key…"
+              options={keySources.map((s) => ({ value: s.id, label: s.label }))}
+              onChange={(v) => keySources.find((s) => s.id === v)?.apply()}
+            />
           )}
           <div className="grid grid-cols-3 gap-2 text-center text-sm">
             <label className={`${full} cursor-pointer`}>Import Key<input name="key-file" type="file" accept=".json,application/json" className="sr-only" onChange={(e) => { onImport(e.target.files?.[0]); e.target.value = ""; }} /></label>
@@ -185,18 +204,20 @@ export default function KeyCanvas({ answerKey, onChange, stats }: { answerKey: A
 /** ZipGrade-style "Edit Key": click bubbles per question, per exam set. Several bubbles = alternate credit. */
 function BubbleGrid({ answerKey, onChange, set }: { answerKey: AnswerKey; onChange: (k: AnswerKey) => void; set: string | null }) {
   const rows = gridRows(answerKey, set);
+  // one track is as wide as the widest row (number + bubbles + ★ + "any"), so a row can never run into its neighbour or past the card
+  const track = gridTrackRem(Math.max(0, ...rows.map((r) => r.rule?.optionLabels.length ?? 0)));
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950" data-testid="bubble-grid">
       <p className="mb-3 text-xs text-zinc-500">Click a bubble to set the answer. Mark <b>two or more</b> for alternate credit (any one earns full points). <span title="Bonus: every student gets full credit">★</span> gives everyone full credit. Every change rescores all papers instantly. <span className="text-zinc-400">· {keyedCount(answerKey)} keyed</span></p>
-      <div className="gap-x-8 sm:columns-2 2xl:columns-4">
+      <div className="grid grid-cols-1 gap-x-6 gap-y-2" style={{ gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, ${track}rem), 1fr))` }}>
         {rows.map((row) => {
           const rule = answerKey.questions.get(row.master)!;
           const dim = rule.dropped ? "opacity-40" : "";
           return (
-            <div key={row.master} className={`mb-1.5 flex break-inside-avoid items-center gap-2 ${dim}`} data-testid={`key-row-${row.printed}`}>
-              <span className="w-7 shrink-0 text-right font-mono text-xs text-zinc-500">{row.printed}</span>
+            <div key={row.master} className={`flex min-w-0 flex-nowrap items-center gap-2 ${dim}`} data-testid={`key-row-${row.printed}`}>
+              <span className="w-7 shrink-0 self-start pt-1.5 text-right font-mono text-xs text-zinc-500">{row.printed}</span>
               {row.rule ? (
-                <div className="flex gap-1" role="group" aria-label={`Correct answer for question ${row.printed}`}>
+                <div className="flex min-w-0 flex-wrap items-center gap-1" role="group" aria-label={`Correct answer for question ${row.printed}`}>
                   {row.rule.optionLabels.map((_, p) => {
                     const m = row.perm[p];
                     const on = row.rule!.correct.includes(m);

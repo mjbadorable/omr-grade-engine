@@ -47,6 +47,29 @@ export function pickTarget<T>(selectors: readonly string[], find: (selector: str
   return null;
 }
 
+/**
+ * Keys pressed in these must not step the tour: form fields, editable text, and the custom Select / row menus
+ * (their own arrow keys, Home / End and type-ahead). Duck-typed so it also runs without a DOM.
+ */
+const INTERACTIVE = '[role="combobox"],[role="listbox"],[role="option"],[role="menu"],[role="menuitem"]';
+export function isTyping(t: unknown): boolean {
+  const el = t as { tagName?: string; isContentEditable?: boolean; closest?: (selector: string) => unknown } | null | undefined;
+  if (!el || typeof el !== "object") return false;
+  if (el.isContentEditable) return true;
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName?.toUpperCase() ?? "")) return true;
+  return typeof el.closest === "function" && !!el.closest(INTERACTIVE);
+}
+
+/**
+ * Escape belongs to an open dropdown or menu first (the Select already calls preventDefault; a row menu has no
+ * such flag but lives in role="menu"), so the tour stays open and only the widget closes.
+ */
+export function widgetOwnsEscape(e: { defaultPrevented?: boolean; target?: unknown }): boolean {
+  if (e.defaultPrevented) return true;
+  const el = e.target as { closest?: (selector: string) => unknown } | null | undefined;
+  return !!el && typeof el === "object" && typeof el.closest === "function" && !!el.closest('[role="menu"],[role="listbox"]');
+}
+
 export interface Box { top: number; left: number; width: number; height: number }
 export const isCompactViewport = (width: number) => width < 640;
 

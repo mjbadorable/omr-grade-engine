@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Select from "@/components/ui/Select";
 import ReviewCanvas from "@/components/scanner/ReviewCanvas";
 import { paperBubbles, type BubbleVisual } from "@/lib/grading/paper-review";
 import { firstUncertainQuestion, isEditableInputTarget, queuePosition } from "@/lib/grading/review-queue";
@@ -174,10 +175,16 @@ export default function ReviewModal({ sheet, scan, rawFields, patches, answerKey
           <label className="flex flex-col gap-1">Roll number<input id="review-roll" name="roll-number" autoComplete="off" className={`${input} w-36 font-mono`} value={roll} onChange={(e) => setRoll(e.target.value.replace(/[^0-9A-Za-z-]/g, ""))} /></label>
           {setOptions.length > 0 && (
             <label className="flex flex-col gap-1">Exam set
-              <select id="review-exam-set" name="exam-set" className={input} value={set} onChange={(e) => setSet(e.target.value)}>
-                <option value="">(unread)</option>
-                {setOptions.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <Select
+                id="review-exam-set"
+                name="exam-set"
+                ariaLabel="Exam set"
+                size="sm"
+                className="min-w-24"
+                value={set}
+                options={[{ value: "", label: "(unread)" }, ...setOptions.map((s) => ({ value: s, label: s }))]}
+                onChange={setSet}
+              />
             </label>
           )}
           <label className="flex min-w-[240px] flex-1 flex-col gap-1">Reason (saved in the audit log)<input id="review-reason" name="reason" autoComplete="off" className={input} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
